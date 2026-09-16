@@ -17,23 +17,14 @@ const port = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "DELETE",
-      "OPTIONS",
+    origin: [
+      "http://localhost:3000",
+      "https://inotebook-frontend-jn8s.onrender.com",
     ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "auth-token",
-    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "auth-token"],
   })
 );
-
 
 /* ============================================================
    BODY PARSER
