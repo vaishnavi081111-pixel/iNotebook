@@ -54,7 +54,7 @@ const Settings = ({
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/changePassword",
+        "https://inotebook-dw4s.onrender.com/api/auth/changePassword",
         {
           method: "PUT",
           headers: {

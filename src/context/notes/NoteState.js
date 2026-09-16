@@ -11,7 +11,7 @@ import noteContext from "./noteContext";
 
 const NoteState = (props) => {
 
-  const host = "http://localhost:5000";
+  const host = "https://inotebook-dw4s.onrender.com";
 
   const [notes, setNotes] = useState([]);
 

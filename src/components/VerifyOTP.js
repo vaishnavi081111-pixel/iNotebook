@@ -62,7 +62,7 @@ const VerifyOTP = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/verifyOtp",
+        "https://inotebook-dw4s.onrender.com/api/auth/verifyOtp",
         {
           method: "POST",
           headers: {
@@ -154,7 +154,7 @@ const VerifyOTP = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/resendOtp",
+        "https://inotebook-dw4s.onrender.com/api/auth/resendOtp",
         {
           method: "POST",
           headers: {

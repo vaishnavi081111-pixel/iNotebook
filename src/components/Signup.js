@@ -104,7 +104,7 @@ const Signup = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/createUser",
+        "https://inotebook-dw4s.onrender.com/api/auth/createUser",
         {
           method: "POST",
 

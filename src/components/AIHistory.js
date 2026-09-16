@@ -8,7 +8,7 @@ import React, {
 
 import { useHistory } from "react-router-dom";
 
-const HOST = "http://localhost:5000";
+const HOST = "https://inotebook-dw4s.onrender.com";
 
 const AIHistory = ({ showAlert }) => {
   const history = useHistory();

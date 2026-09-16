@@ -42,7 +42,7 @@ const Navbar = ({
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/getUser",
+        "https://inotebook-dw4s.onrender.com/api/auth/getUser",
         {
           method: "POST",
           headers: {

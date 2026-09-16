@@ -70,7 +70,7 @@ const ResetPassword = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/auth/ResetPassword",
+        "https://inotebook-dw4s.onrender.com/api/auth/ResetPassword",
         {
           method: "POST",
 

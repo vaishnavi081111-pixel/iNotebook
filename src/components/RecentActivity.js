@@ -20,7 +20,7 @@ const RecentActivity = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/activity/recent",
+        "https://inotebook-dw4s.onrender.com/api/activity/recent",
         {
           method: "GET",
           headers: {
@@ -61,7 +61,7 @@ const RecentActivity = ({ showAlert }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/activity/clear",
+        "https://inotebook-dw4s.onrender.com/api/activity/clear",
         {
           method: "DELETE",
           headers: {

@@ -19,7 +19,7 @@
 //     email: "",
 //   });
 
-//   const host = "http://localhost:5000";
+//   const host = "https://inotebook-dw4s.onrender.com";
 
 //   // ============================================================
 //   // GET USER
@@ -520,7 +520,7 @@ const Account = ({ showAlert }) => {
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  const host = "http://localhost:5000";
+  const host = "https://inotebook-dw4s.onrender.com";
 
   // ============================================================
   // NORMALIZE PHONE
