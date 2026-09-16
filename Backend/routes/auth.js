@@ -1,731 +1,574 @@
 const express = require("express");
-
-const router = express.Router();
-
-const {
-  body,
-  validationResult,
-} = require("express-validator");
-
+const { body, validationResult } = require("express-validator");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 const rateLimit = require("express-rate-limit");
+const { Resend } = require("resend");
 
 const User = require("../models/User");
 const Activity = require("../models/Activity");
 const fetchuser = require("../middleware/fetchuser");
 
-// ============================================================
-// ENVIRONMENT
-// ============================================================
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "your_super_secret_jwt_key";
+const router = express.Router();
 
 // ============================================================
-// EMAIL TRANSPORTER
+// CONFIGURATION
 // ============================================================
 
-const createMailTransporter = () => {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
+const JWT_SECRET = process.env.JWT_SECRET || "inotebook-secret-key";
 
-    // Force IPv4 on Render
-    family: 4,
-
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_APP_PASSWORD,
-    },
-
-    connectionTimeout: 30000,
-    greetingTimeout: 30000,
-    socketTimeout: 30000,
-  });
-};
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ============================================================
 // RATE LIMITERS
 // ============================================================
 
-// Login protection
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15,
-  message: {
-    error:
-      "Too many login attempts. Please try again after 15 minutes.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    message: {
+        success: false,
+        error: "Too many login attempts. Please try again later.",
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
-// OTP sending protection
 const otpSendLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: {
-    error:
-      "Too many OTP requests. Please try again later.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: {
+        success: false,
+        error: "Too many OTP requests. Please try again later.",
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
-// OTP verification protection
 const otpVerifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15,
-  message: {
-    error:
-      "Too many OTP verification attempts. Please try again later.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    message: {
+        success: false,
+        error: "Too many OTP verification attempts. Please try again later.",
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // ============================================================
-// HELPER - CREATE JWT
+// HELPER FUNCTIONS
 // ============================================================
 
 const createToken = (userId) => {
-  return jwt.sign(
-    {
-      user: {
-        id: userId,
-      },
-    },
-    JWT_SECRET,
-    {
-      expiresIn: "7d",
-    }
-  );
+    return jwt.sign(
+        { user: { id: userId } },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+    );
 };
 
-// ============================================================
-// HELPER - CREATE PASSWORD RESET TOKEN
-// ============================================================
+// ------------------------------------------------------------
+// Password reset token
+// ------------------------------------------------------------
 
-const createPasswordResetToken = (userId) => {
-  return jwt.sign(
-    {
-      user: {
-        id: userId,
-      },
-      purpose: "password-reset",
-    },
-    JWT_SECRET,
-    {
-      expiresIn: "10m",
-    }
-  );
+const createPasswordResetToken = () => {
+    return crypto.randomBytes(32).toString("hex");
 };
 
-// ============================================================
-// HELPER - GENERATE OTP
-// ============================================================
+// ------------------------------------------------------------
+// Generate OTP
+// ------------------------------------------------------------
 
 const generateOtp = () => {
-  return Math.floor(
-    100000 + Math.random() * 900000
-  ).toString();
+    return crypto.randomInt(100000, 1000000).toString();
 };
 
-// ============================================================
-// HELPER - HASH OTP
-// ============================================================
+// ------------------------------------------------------------
+// Hash OTP
+// ------------------------------------------------------------
 
 const hashOtp = (otp) => {
-  return crypto
-    .createHash("sha256")
-    .update(otp)
-    .digest("hex");
+    return crypto
+        .createHash("sha256")
+        .update(otp)
+        .digest("hex");
 };
 
-// ============================================================
-// HELPER - NORMALIZE PHONE
-// ============================================================
+// ------------------------------------------------------------
+// Normalize phone number
+// ------------------------------------------------------------
 
 const normalizePhone = (phone) => {
-  if (!phone) {
-    return null;
-  }
+    if (!phone) return "";
 
-  let value = phone
-    .toString()
-    .trim()
-    .replace(/\s+/g, "");
+    const value = phone.replace(/\s+/g, "").replace(/-/g, "");
 
-  value = value.replace(/-/g, "");
+    if (/^[6-9]\d{9}$/.test(value)) {
+        return `+91${value}`;
+    }
 
-  // 9876543210
-  if (/^[6-9]\d{9}$/.test(value)) {
-    return `+91${value}`;
-  }
+    if (/^91[6-9]\d{9}$/.test(value)) {
+        return `+${value}`;
+    }
 
-  // 919876543210
-  if (/^91[6-9]\d{9}$/.test(value)) {
-    return `+${value}`;
-  }
+    if (/^\+91[6-9]\d{9}$/.test(value)) {
+        return value;
+    }
 
-  // +919876543210
-  if (/^\+91[6-9]\d{9}$/.test(value)) {
     return value;
-  }
-
-  return null;
 };
 
-// ============================================================
-// HELPER - CHECK EMAIL
-// ============================================================
+// ------------------------------------------------------------
+// Check email
+// ------------------------------------------------------------
 
 const isEmail = (value) => {
-  if (!value) {
-    return false;
-  }
-
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 
-// ============================================================
-// HELPER - MASK EMAIL
-// ============================================================
+// ------------------------------------------------------------
+// Mask email
+// ------------------------------------------------------------
 
 const maskEmail = (email) => {
-  if (!email || !email.includes("@")) {
-    return "";
-  }
+    if (!email) return "";
 
-  const parts = email.split("@");
-  const name = parts[0];
-  const domain = parts[1];
+    const parts = email.split("@");
 
-  if (name.length <= 2) {
-    return `${name.charAt(0)}***@${domain}`;
-  }
+    if (parts.length !== 2) {
+        return email;
+    }
 
-  return `${name.substring(0, 2)}***@${domain}`;
+    const name = parts[0];
+    const domain = parts[1];
+
+    if (name.length <= 2) {
+        return `${name[0] || "*"}***@${domain}`;
+    }
+
+    return `${name.substring(0, 2)}***@${domain}`;
 };
 
-// ============================================================
-// HELPER - MASK PHONE
-// ============================================================
+// ------------------------------------------------------------
+// Mask phone
+// ------------------------------------------------------------
 
 const maskPhone = (phone) => {
-  if (!phone) {
-    return "";
-  }
+    if (!phone) return "";
 
-  const value = phone.toString();
+    const digits = phone.replace(/\D/g, "");
 
-  if (value.length < 4) {
-    return "******";
-  }
+    if (digits.length < 4) {
+        return "****";
+    }
 
-  return `******${value.slice(-4)}`;
+    return `******${digits.slice(-4)}`;
 };
 
-// ============================================================
-// HELPER - CLEAR OTP
-// ============================================================
+// ------------------------------------------------------------
+// Clear OTP information
+// ------------------------------------------------------------
 
 const clearOtp = (user) => {
-  user.otp = null;
-  user.otpExpiry = null;
-  user.otpPurpose = null;
-  user.otpAttempts = 0;
+    user.otpHash = undefined;
+    user.otpExpires = undefined;
+    user.otpPurpose = undefined;
+    user.otpAttempts = 0;
 };
 
 // ============================================================
-// HELPER - SEND OTP EMAIL
+// RESEND EMAIL FUNCTION
 // ============================================================
 
 const sendOtpEmail = async ({
-  email,
-  otp,
-  purpose = "signup",
+    email,
+    otp,
+    purpose = "signup",
 }) => {
-  const transporter = createMailTransporter();
+    if (!process.env.RESEND_API_KEY) {
+        throw new Error("RESEND_API_KEY is not configured");
+    }
 
-  const isSignup = purpose === "signup";
+    const isSignup = purpose === "signup";
 
-  const title = isSignup
-    ? "Verify your iNotebook account"
-    : "Reset your iNotebook password";
+    const subject = isSignup
+        ? "iNotebook - Verify Your Email"
+        : "iNotebook - Password Reset OTP";
 
-  const description = isSignup
-    ? "Use the OTP below to verify your email address and activate your iNotebook account."
-    : "Use the OTP below to verify your identity and reset your iNotebook password.";
+    const heading = isSignup
+        ? "Verify Your Email"
+        : "Reset Your Password";
 
-  const subject = isSignup
-    ? "Your iNotebook verification OTP"
-    : "Your iNotebook password reset OTP";
+    const message = isSignup
+        ? "Use the OTP below to verify your iNotebook account."
+        : "Use the OTP below to reset your iNotebook password.";
 
-  await transporter.sendMail({
-    from: `"iNotebook" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject,
+    try {
+        const { data, error } = await resend.emails.send({
+            from:
+                process.env.EMAIL_FROM ||
+                "iNotebook <onboarding@resend.dev>",
 
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8" />
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1.0"
-        />
-        <title>${title}</title>
-      </head>
+            to: [email],
 
-      <body
-        style="
-          margin:0;
-          padding:0;
-          background:#f6f7fb;
-          font-family:Arial,Helvetica,sans-serif;
-        "
-      >
+            subject,
 
-        <div
-          style="
-            max-width:600px;
-            margin:40px auto;
-            background:#ffffff;
-            border-radius:20px;
-            overflow:hidden;
-            box-shadow:0 10px 40px rgba(0,0,0,0.08);
-          "
-        >
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>${subject}</title>
+                </head>
 
-          <div
-            style="
-              background:linear-gradient(
-                135deg,
-                #6366f1,
-                #8b7cff
-              );
-              padding:32px;
-              text-align:center;
-              color:white;
-            "
-          >
-            <h1
-              style="
-                margin:0;
-                font-size:28px;
-              "
-            >
-              iNotebook
-            </h1>
+                <body style="
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f5f3ff;
+                    font-family: Arial, Helvetica, sans-serif;
+                ">
 
-            <p
-              style="
-                margin:8px 0 0;
-                opacity:0.9;
-              "
-            >
-              Your notes. Your workspace.
-            </p>
-          </div>
+                    <div style="
+                        max-width: 600px;
+                        margin: 40px auto;
+                        padding: 0 20px;
+                    ">
 
-          <div
-            style="
-              padding:40px 32px;
-              color:#171725;
-            "
-          >
+                        <div style="
+                            background: #ffffff;
+                            border-radius: 18px;
+                            padding: 40px;
+                            box-shadow: 0 10px 35px rgba(0,0,0,0.08);
+                        ">
 
-            <h2
-              style="
-                margin-top:0;
-                font-size:22px;
-              "
-            >
-              ${title}
-            </h2>
+                            <div style="
+                                text-align: center;
+                                margin-bottom: 30px;
+                            ">
 
-            <p
-              style="
-                color:#646579;
-                line-height:1.6;
-              "
-            >
-              ${description}
-            </p>
+                                <h1 style="
+                                    margin: 0;
+                                    color: #6366f1;
+                                    font-size: 32px;
+                                ">
+                                    iNotebook.
+                                </h1>
 
-            <div
-              style="
-                margin:30px 0;
-                padding:22px;
-                background:#f3f1ff;
-                border-radius:16px;
-                text-align:center;
-              "
-            >
+                            </div>
 
-              <div
-                style="
-                  color:#646579;
-                  font-size:13px;
-                  margin-bottom:8px;
-                  text-transform:uppercase;
-                  letter-spacing:1px;
-                "
-              >
-                Your OTP
-              </div>
+                            <h2 style="
+                                color: #222222;
+                                margin-bottom: 15px;
+                            ">
+                                ${heading}
+                            </h2>
 
-              <div
-                style="
-                  font-size:38px;
-                  font-weight:bold;
-                  letter-spacing:8px;
-                  color:#6366f1;
-                "
-              >
-                ${otp}
-              </div>
+                            <p style="
+                                color: #555555;
+                                font-size: 16px;
+                                line-height: 1.6;
+                            ">
+                                ${message}
+                            </p>
 
-            </div>
+                            <div style="
+                                margin: 30px 0;
+                                padding: 25px;
+                                background: #eef2ff;
+                                border-radius: 14px;
+                                text-align: center;
+                            ">
 
-            <p
-              style="
-                color:#646579;
-                font-size:14px;
-                line-height:1.6;
-              "
-            >
-              This OTP is valid for
-              <strong>10 minutes</strong>.
-              Do not share this code with anyone.
-            </p>
+                                <p style="
+                                    margin: 0 0 10px;
+                                    color: #666666;
+                                    font-size: 14px;
+                                ">
+                                    Your OTP
+                                </p>
 
-            <p
-              style="
-                color:#9698aa;
-                font-size:13px;
-                margin-top:30px;
-              "
-            >
-              If you did not request this,
-              you can safely ignore this email.
-            </p>
+                                <div style="
+                                    color: #4f46e5;
+                                    font-size: 38px;
+                                    font-weight: bold;
+                                    letter-spacing: 8px;
+                                ">
+                                    ${otp}
+                                </div>
 
-          </div>
+                            </div>
 
-          <div
-            style="
-              padding:20px 32px;
-              background:#fafaff;
-              text-align:center;
-              color:#9698aa;
-              font-size:12px;
-            "
-          >
-            © ${new Date().getFullYear()}
-            iNotebook. All rights reserved.
-          </div>
+                            <p style="
+                                color: #666666;
+                                font-size: 14px;
+                                line-height: 1.6;
+                            ">
+                                This OTP is valid for 10 minutes.
+                            </p>
 
-        </div>
+                            <p style="
+                                color: #999999;
+                                font-size: 13px;
+                                line-height: 1.6;
+                                margin-top: 25px;
+                            ">
+                                If you did not request this OTP, you can safely
+                                ignore this email.
+                            </p>
 
-      </body>
-      </html>
-    `,
-  });
+                            <hr style="
+                                border: none;
+                                border-top: 1px solid #eeeeee;
+                                margin: 30px 0;
+                            ">
+
+                            <p style="
+                                text-align: center;
+                                color: #aaaaaa;
+                                font-size: 12px;
+                                margin: 0;
+                            ">
+                                © ${new Date().getFullYear()} iNotebook.
+                                All rights reserved.
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </body>
+                </html>
+            `,
+        });
+
+        if (error) {
+            console.error("RESEND EMAIL ERROR:", error);
+            throw new Error(
+                error.message || "Failed to send OTP email"
+            );
+        }
+
+        console.log(
+            "RESEND EMAIL SENT SUCCESSFULLY:",
+            data?.id
+        );
+
+        return data;
+    } catch (error) {
+        console.error("SEND OTP EMAIL ERROR:", error);
+        throw error;
+    }
 };
 
 // ============================================================
-// CREATE USER / SIGNUP
+// CREATE USER
 // POST /api/auth/createUser
 // ============================================================
 
 router.post(
-  "/createUser",
-  otpSendLimiter,
+    "/createUser",
 
-  [
-    body("name")
-      .trim()
-      .isLength({ min: 3 })
-      .withMessage(
-        "Name must be at least 3 characters"
-      ),
+    [
+        body("name")
+            .trim()
+            .notEmpty()
+            .withMessage("Name is required")
+            .isLength({ min: 2 })
+            .withMessage("Name must be at least 2 characters"),
 
-    body("email")
-      .trim()
-      .isEmail()
-      .withMessage(
-        "Please enter a valid email address"
-      ),
+        body("email")
+            .trim()
+            .isEmail()
+            .withMessage("Please enter a valid email")
+            .normalizeEmail(),
 
-    body("phone")
-      .trim()
-      .notEmpty()
-      .withMessage(
-        "Phone number is required"
-      ),
+        body("phone")
+            .trim()
+            .notEmpty()
+            .withMessage("Phone number is required"),
 
-    body("password")
-      .isLength({ min: 5 })
-      .withMessage(
-        "Password must be at least 5 characters"
-      ),
+        body("password")
+            .isLength({ min: 6 })
+            .withMessage("Password must be at least 6 characters"),
 
-    body("confirmPassword")
-      .notEmpty()
-      .withMessage(
-        "Please confirm your password"
-      ),
-  ],
+        body("confirmPassword")
+            .notEmpty()
+            .withMessage("Please confirm your password"),
+    ],
 
-  async (req, res) => {
-    try {
-      // --------------------------------------------------------
-      // VALIDATION
-      // --------------------------------------------------------
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            const {
+                name,
+                email,
+                phone,
+                password,
+                confirmPassword,
+            } = req.body;
 
-      // --------------------------------------------------------
-      // GET DATA
-      // --------------------------------------------------------
+            if (password !== confirmPassword) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Passwords do not match",
+                });
+            }
 
-      const name = req.body.name.trim();
+            const normalizedEmail = email.toLowerCase().trim();
+            const normalizedPhone = normalizePhone(phone);
 
-      const email = req.body.email
-        .trim()
-        .toLowerCase();
+            if (!isEmail(normalizedEmail)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid email address",
+                });
+            }
 
-      const phone = normalizePhone(
-        req.body.phone
-      );
+            if (!/^\+91[6-9]\d{9}$/.test(normalizedPhone)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Please enter a valid Indian phone number",
+                });
+            }
 
-      const password = req.body.password;
+            // ------------------------------------------------
+            // Check existing email
+            // ------------------------------------------------
 
-      const confirmPassword =
-        req.body.confirmPassword;
+            let user = await User.findOne({
+                email: normalizedEmail,
+            });
 
-      // --------------------------------------------------------
-      // PHONE VALIDATION
-      // --------------------------------------------------------
+            if (user && user.emailVerified) {
+                return res.status(400).json({
+                    success: false,
+                    error: "An account with this email already exists",
+                });
+            }
 
-      if (!phone) {
-        return res.status(400).json({
-          error:
-            "Please enter a valid Indian phone number.",
-        });
-      }
+            // ------------------------------------------------
+            // Check existing phone
+            // ------------------------------------------------
 
-      // --------------------------------------------------------
-      // PASSWORD MATCH
-      // --------------------------------------------------------
+            const phoneUser = await User.findOne({
+                phone: normalizedPhone,
+            });
 
-      if (password !== confirmPassword) {
-        return res.status(400).json({
-          error: "Passwords do not match.",
-        });
-      }
+            if (
+                phoneUser &&
+                phoneUser.emailVerified &&
+                (!user || phoneUser._id.toString() !== user._id.toString())
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    error: "An account with this phone number already exists",
+                });
+            }
 
-      // --------------------------------------------------------
-      // CHECK EMAIL
-      // --------------------------------------------------------
+            // ------------------------------------------------
+            // Hash password
+            // ------------------------------------------------
 
-      const existingEmail =
-        await User.findOne({
-          email,
-        });
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(
+                password,
+                salt
+            );
 
-      // --------------------------------------------------------
-      // CHECK PHONE
-      // --------------------------------------------------------
+            // ------------------------------------------------
+            // Generate OTP
+            // ------------------------------------------------
 
-      const existingPhone =
-        await User.findOne({
-          phone,
-        });
+            const otp = generateOtp();
+            const otpHash = hashOtp(otp);
 
-      // --------------------------------------------------------
-      // EXISTING VERIFIED EMAIL
-      // --------------------------------------------------------
+            const otpExpires = new Date(
+                Date.now() + 10 * 60 * 1000
+            );
 
-      if (
-        existingEmail &&
-        existingEmail.emailVerified
-      ) {
-        return res.status(400).json({
-          error:
-            "An account with this email already exists.",
-        });
-      }
+            // ------------------------------------------------
+            // Create / update user
+            // ------------------------------------------------
 
-      // --------------------------------------------------------
-      // EXISTING VERIFIED PHONE
-      // --------------------------------------------------------
+            if (!user) {
+                user = new User({
+                    name: name.trim(),
+                    email: normalizedEmail,
+                    phone: normalizedPhone,
+                    password: hashedPassword,
+                    emailVerified: false,
+                    phoneVerified: false,
+                    otpHash,
+                    otpExpires,
+                    otpPurpose: "signup",
+                    otpAttempts: 0,
+                });
+            } else {
+                user.name = name.trim();
+                user.email = normalizedEmail;
+                user.phone = normalizedPhone;
+                user.password = hashedPassword;
+                user.emailVerified = false;
+                user.phoneVerified = false;
+                user.otpHash = otpHash;
+                user.otpExpires = otpExpires;
+                user.otpPurpose = "signup";
+                user.otpAttempts = 0;
+            }
 
-      if (
-        existingPhone &&
-        existingPhone.emailVerified
-      ) {
-        return res.status(400).json({
-          error:
-            "An account with this phone number already exists.",
-        });
-      }
+            await user.save();
 
-      // --------------------------------------------------------
-      // PHONE BELONGS TO DIFFERENT ACCOUNT
-      // --------------------------------------------------------
+            // ------------------------------------------------
+            // Send OTP through Resend
+            // ------------------------------------------------
 
-      if (
-        existingPhone &&
-        existingEmail &&
-        existingPhone._id.toString() !==
-          existingEmail._id.toString()
-      ) {
-        return res.status(400).json({
-          error:
-            "This phone number is already associated with another account.",
-        });
-      }
+            try {
+                await sendOtpEmail({
+                    email: normalizedEmail,
+                    otp,
+                    purpose: "signup",
+                });
+            } catch (emailError) {
+                console.error(
+                    "SIGNUP OTP EMAIL ERROR:",
+                    emailError
+                );
 
-      // --------------------------------------------------------
-      // HASH PASSWORD
-      // --------------------------------------------------------
+                return res.status(503).json({
+                    success: false,
+                    error:
+                        "Unable to send OTP email. Please try again later.",
+                });
+            }
 
-      const salt =
-        await bcrypt.genSalt(10);
+            return res.status(201).json({
+                success: true,
+                requiresOtp: true,
+                message:
+                    "Account created. OTP sent to your email.",
+                email: maskEmail(normalizedEmail),
+                phone: maskPhone(normalizedPhone),
+            });
+        } catch (error) {
+            console.error("CREATE USER ERROR:", error);
 
-      const hashedPassword =
-        await bcrypt.hash(
-          password,
-          salt
-        );
-
-      // --------------------------------------------------------
-      // GENERATE OTP
-      // --------------------------------------------------------
-
-      const otp = generateOtp();
-
-      const hashedOtp = hashOtp(otp);
-
-      const otpExpiry = new Date(
-        Date.now() + 10 * 60 * 1000
-      );
-
-      // --------------------------------------------------------
-      // CREATE / UPDATE USER
-      // --------------------------------------------------------
-
-      let user;
-
-      if (existingEmail) {
-        user = existingEmail;
-
-        user.name = name;
-        user.phone = phone;
-        user.password = hashedPassword;
-        user.otp = hashedOtp;
-        user.otpExpiry = otpExpiry;
-        user.otpPurpose = "signup";
-        user.otpAttempts = 0;
-        user.emailVerified = false;
-      } else {
-        user = new User({
-          name,
-          email,
-          phone,
-          password: hashedPassword,
-          emailVerified: false,
-          phoneVerified: false,
-          otp: hashedOtp,
-          otpExpiry,
-          otpPurpose: "signup",
-          otpAttempts: 0,
-        });
-      }
-
-      await user.save();
-
-      // --------------------------------------------------------
-      // SEND EMAIL OTP
-      // --------------------------------------------------------
-
-      try {
-        await sendOtpEmail({
-          email: user.email,
-          otp,
-          purpose: "signup",
-        });
-      } catch (emailError) {
-        console.error(
-          "SEND SIGNUP OTP ERROR:",
-          emailError
-        );
-
-        clearOtp(user);
-
-        await user.save();
-
-        return res.status(500).json({
-          error:
-            "Unable to send OTP email. Please check your email configuration.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.status(201).json({
-        success: true,
-        requiresOtp: true,
-        message:
-          "Account created. OTP sent to your email.",
-        userId: user._id,
-        email: maskEmail(user.email),
-        phone: maskPhone(user.phone),
-      });
-
-    } catch (error) {
-      console.error(
-        "CREATE USER ERROR:",
-        error
-      );
-
-      if (error.code === 11000) {
-        if (error.keyPattern?.email) {
-          return res.status(400).json({
-            error:
-              "This email address is already registered.",
-          });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
         }
-
-        if (error.keyPattern?.phone) {
-          return res.status(400).json({
-            error:
-              "This phone number is already registered.",
-          });
-        }
-      }
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
     }
-  }
 );
 
 // ============================================================
@@ -734,235 +577,196 @@ router.post(
 // ============================================================
 
 router.post(
-  "/verifyOtp",
-  otpVerifyLimiter,
+    "/verifyOtp",
+    otpVerifyLimiter,
 
-  [
-    body("userId")
-      .notEmpty()
-      .withMessage("User ID is required"),
+    [
+        body("email")
+            .trim()
+            .isEmail()
+            .withMessage("Valid email is required")
+            .normalizeEmail(),
 
-    body("otp")
-      .trim()
-      .isLength({
-        min: 6,
-        max: 6,
-      })
-      .isNumeric()
-      .withMessage(
-        "OTP must be a 6-digit number"
-      ),
+        body("otp")
+            .trim()
+            .isLength({ min: 6, max: 6 })
+            .withMessage("OTP must be 6 digits"),
 
-    body("purpose")
-      .isIn([
-        "signup",
-        "forgot-password",
-      ])
-      .withMessage(
-        "Invalid OTP purpose"
-      ),
-  ],
+        body("purpose")
+            .optional()
+            .isIn(["signup", "forgot-password"])
+            .withMessage("Invalid OTP purpose"),
+    ],
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      const {
-        userId,
-        otp,
-        purpose,
-      } = req.body;
+            const {
+                email,
+                otp,
+                purpose = "signup",
+            } = req.body;
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
+            const normalizedEmail = email.toLowerCase().trim();
 
-      const user =
-        await User.findById(userId);
+            const user = await User.findOne({
+                email: normalizedEmail,
+            });
 
-      if (!user) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
 
-      // --------------------------------------------------------
-      // OTP EXISTS
-      // --------------------------------------------------------
+            if (!user.otpHash || !user.otpExpires) {
+                return res.status(400).json({
+                    success: false,
+                    error: "No active OTP found. Please request a new OTP.",
+                });
+            }
 
-      if (
-        !user.otp ||
-        !user.otpExpiry ||
-        !user.otpPurpose
-      ) {
-        return res.status(400).json({
-          error:
-            "No active OTP found. Please request a new OTP.",
-        });
-      }
+            if (user.otpPurpose !== purpose) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid OTP purpose",
+                });
+            }
 
-      // --------------------------------------------------------
-      // OTP PURPOSE
-      // --------------------------------------------------------
+            if (new Date() > user.otpExpires) {
+                clearOtp(user);
+                await user.save();
 
-      if (user.otpPurpose !== purpose) {
-        return res.status(400).json({
-          error:
-            "This OTP is not valid for this action.",
-        });
-      }
+                return res.status(400).json({
+                    success: false,
+                    error: "OTP has expired. Please request a new OTP.",
+                });
+            }
 
-      // --------------------------------------------------------
-      // MAX ATTEMPTS
-      // --------------------------------------------------------
+            if ((user.otpAttempts || 0) >= 5) {
+                clearOtp(user);
+                await user.save();
 
-      if (user.otpAttempts >= 5) {
-        clearOtp(user);
+                return res.status(429).json({
+                    success: false,
+                    error:
+                        "Too many incorrect attempts. Please request a new OTP.",
+                });
+            }
 
-        await user.save();
+            const incomingOtpHash = hashOtp(otp);
 
-        return res.status(400).json({
-          error:
-            "Too many incorrect OTP attempts. Please request a new OTP.",
-        });
-      }
+            if (incomingOtpHash !== user.otpHash) {
+                user.otpAttempts = (user.otpAttempts || 0) + 1;
 
-      // --------------------------------------------------------
-      // OTP EXPIRY
-      // --------------------------------------------------------
+                await user.save();
 
-      if (
-        new Date() >
-        new Date(user.otpExpiry)
-      ) {
-        clearOtp(user);
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid OTP",
+                    attemptsRemaining:
+                        Math.max(
+                            0,
+                            5 - user.otpAttempts
+                        ),
+                });
+            }
 
-        await user.save();
+            // ------------------------------------------------
+            // SIGNUP OTP
+            // ------------------------------------------------
 
-        return res.status(400).json({
-          error:
-            "OTP has expired. Please request a new OTP.",
-        });
-      }
+            if (purpose === "signup") {
+                user.emailVerified = true;
 
-      // --------------------------------------------------------
-      // CHECK OTP
-      // --------------------------------------------------------
+                if (user.phone) {
+                    user.phoneVerified = true;
+                }
 
-      const hashedInputOtp =
-        hashOtp(otp);
+                clearOtp(user);
 
-      if (
-        hashedInputOtp !== user.otp
-      ) {
-        user.otpAttempts += 1;
+                await user.save();
 
-        await user.save();
+                try {
+                    await Activity.create({
+                        user: user._id,
+                        action: "account_created",
+                        message:
+                            "Account created and email verified",
+                    });
+                } catch (activityError) {
+                    console.error(
+                        "ACTIVITY ERROR:",
+                        activityError
+                    );
+                }
 
-        return res.status(400).json({
-          error:
-            "Incorrect OTP. Please try again.",
-          attemptsRemaining:
-            Math.max(
-              0,
-              5 - user.otpAttempts
-            ),
-        });
-      }
+                const token = createToken(user._id);
 
-      // --------------------------------------------------------
-      // SIGNUP OTP
-      // --------------------------------------------------------
+                return res.status(200).json({
+                    success: true,
+                    message:
+                        "Email verified successfully",
+                    token,
+                    user: {
+                        id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        phone: user.phone,
+                    },
+                });
+            }
 
-      if (purpose === "signup") {
-        user.emailVerified = true;
-        user.phoneVerified = true;
+            // ------------------------------------------------
+            // FORGOT PASSWORD OTP
+            // ------------------------------------------------
 
-        clearOtp(user);
+            if (purpose === "forgot-password") {
+                const resetToken = createPasswordResetToken();
 
-        await user.save();
+                user.passwordResetToken = crypto
+                    .createHash("sha256")
+                    .update(resetToken)
+                    .digest("hex");
 
-        // ------------------------------------------------------
-        // ACTIVITY
-        // ------------------------------------------------------
+                user.passwordResetExpires = new Date(
+                    Date.now() + 15 * 60 * 1000
+                );
 
-        await Activity.create({
-          user: user._id,
-          action: "signup",
-          message:
-            "Created and verified iNotebook account",
-          date: new Date(),
-        });
+                clearOtp(user);
 
-        // ------------------------------------------------------
-        // JWT
-        // ------------------------------------------------------
+                await user.save();
 
-        const authToken =
-          createToken(user._id);
+                return res.status(200).json({
+                    success: true,
+                    message:
+                        "OTP verified. You can now reset your password.",
+                    resetToken,
+                });
+            }
 
-        return res.json({
-          success: true,
-          message:
-            "Account verified successfully.",
-          authToken,
+            return res.status(400).json({
+                success: false,
+                error: "Invalid OTP purpose",
+            });
+        } catch (error) {
+            console.error("VERIFY OTP ERROR:", error);
 
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone || "",
-          },
-        });
-      }
-
-      // --------------------------------------------------------
-      // FORGOT PASSWORD OTP
-      // --------------------------------------------------------
-
-      if (
-        purpose ===
-        "forgot-password"
-      ) {
-        clearOtp(user);
-
-        await user.save();
-
-        const resetToken =
-          createPasswordResetToken(
-            user._id
-          );
-
-        return res.json({
-          success: true,
-          message:
-            "OTP verified successfully.",
-          resetToken,
-        });
-      }
-
-      return res.status(400).json({
-        error: "Invalid OTP purpose.",
-      });
-
-    } catch (error) {
-      console.error(
-        "VERIFY OTP ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
+        }
     }
-  }
 );
 
 // ============================================================
@@ -971,489 +775,349 @@ router.post(
 // ============================================================
 
 router.post(
-  "/resendOtp",
-  otpSendLimiter,
+    "/resendOtp",
+    otpSendLimiter,
 
-  [
-    body("userId")
-      .notEmpty()
-      .withMessage("User ID is required"),
+    [
+        body("email")
+            .trim()
+            .isEmail()
+            .withMessage("Valid email is required")
+            .normalizeEmail(),
 
-    body("purpose")
-      .isIn([
-        "signup",
-        "forgot-password",
-      ])
-      .withMessage(
-        "Invalid OTP purpose"
-      ),
-  ],
+        body("purpose")
+            .optional()
+            .isIn(["signup", "forgot-password"])
+            .withMessage("Invalid OTP purpose"),
+    ],
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      const {
-        userId,
-        purpose,
-      } = req.body;
+            const {
+                email,
+                purpose = "signup",
+            } = req.body;
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
+            const normalizedEmail = email.toLowerCase().trim();
 
-      const user =
-        await User.findById(userId);
+            const user = await User.findOne({
+                email: normalizedEmail,
+            });
 
-      if (!user) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
 
-      // --------------------------------------------------------
-      // FORGOT PASSWORD MUST HAVE VERIFIED EMAIL
-      // --------------------------------------------------------
+            if (
+                purpose === "signup" &&
+                user.emailVerified
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Email is already verified",
+                });
+            }
 
-      if (
-        purpose ===
-          "forgot-password" &&
-        !user.emailVerified
-      ) {
-        return res.status(400).json({
-          error:
-            "Your email is not verified.",
-        });
-      }
+            if (
+                purpose === "forgot-password" &&
+                !user.emailVerified
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "Please verify your email before resetting your password.",
+                });
+            }
 
-      // --------------------------------------------------------
-      // GENERATE NEW OTP
-      // --------------------------------------------------------
+            const otp = generateOtp();
 
-      const otp = generateOtp();
+            user.otpHash = hashOtp(otp);
 
-      const hashedOtp =
-        hashOtp(otp);
+            user.otpExpires = new Date(
+                Date.now() + 10 * 60 * 1000
+            );
 
-      user.otp = hashedOtp;
+            user.otpPurpose = purpose;
+            user.otpAttempts = 0;
 
-      user.otpExpiry = new Date(
-        Date.now() + 10 * 60 * 1000
-      );
+            await user.save();
 
-      user.otpPurpose = purpose;
-      user.otpAttempts = 0;
+            try {
+                await sendOtpEmail({
+                    email: normalizedEmail,
+                    otp,
+                    purpose,
+                });
+            } catch (emailError) {
+                console.error(
+                    "RESEND OTP EMAIL ERROR:",
+                    emailError
+                );
 
-      await user.save();
+                return res.status(503).json({
+                    success: false,
+                    error:
+                        "Unable to send OTP email. Please try again later.",
+                });
+            }
 
-      // --------------------------------------------------------
-      // SEND EMAIL
-      // --------------------------------------------------------
+            return res.status(200).json({
+                success: true,
+                message: "New OTP sent successfully",
+                email: maskEmail(normalizedEmail),
+            });
+        } catch (error) {
+            console.error("RESEND OTP ERROR:", error);
 
-      try {
-        await sendOtpEmail({
-          email: user.email,
-          otp,
-          purpose,
-        });
-      } catch (emailError) {
-        console.error(
-          "RESEND OTP EMAIL ERROR:",
-          emailError
-        );
-
-        clearOtp(user);
-
-        await user.save();
-
-        return res.status(500).json({
-          error:
-            "Unable to send OTP email.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        message:
-          "A new OTP has been sent to your email.",
-        email: maskEmail(
-          user.email
-        ),
-      });
-
-    } catch (error) {
-      console.error(
-        "RESEND OTP ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
+        }
     }
-  }
 );
 
 // ============================================================
 // LOGIN
 // POST /api/auth/login
-// Supports Email OR Phone
 // ============================================================
 
 router.post(
-  "/login",
-  loginLimiter,
+    "/login",
+    loginLimiter,
 
-  [
-    body("identifier")
-      .optional()
-      .trim(),
+    [
+        body("identifier")
+            .trim()
+            .notEmpty()
+            .withMessage("Email or phone is required"),
 
-    body("email")
-      .optional()
-      .trim(),
+        body("password")
+            .notEmpty()
+            .withMessage("Password is required"),
+    ],
 
-    body("password")
-      .notEmpty()
-      .withMessage(
-        "Password is required"
-      ),
-  ],
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            const {
+                identifier,
+                password,
+            } = req.body;
 
-      // --------------------------------------------------------
-      // SUPPORT BOTH identifier AND OLD email FIELD
-      // --------------------------------------------------------
+            const value = identifier.trim();
 
-      const identifier = (
-        req.body.identifier ||
-        req.body.email ||
-        ""
-      ).trim();
+            let user;
 
-      const password =
-        req.body.password;
+            if (isEmail(value)) {
+                user = await User.findOne({
+                    email: value.toLowerCase(),
+                });
+            } else {
+                const normalizedPhone =
+                    normalizePhone(value);
 
-      if (!identifier) {
-        return res.status(400).json({
-          error:
-            "Email or phone number is required.",
-        });
-      }
+                user = await User.findOne({
+                    phone: normalizedPhone,
+                });
+            }
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
+            if (!user) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid email/phone or password",
+                });
+            }
 
-      let user;
+            const passwordMatch =
+                await bcrypt.compare(
+                    password,
+                    user.password
+                );
 
-      if (isEmail(identifier)) {
-        user =
-          await User.findOne({
-            email:
-              identifier.toLowerCase(),
-          });
-      } else {
-        const phone =
-          normalizePhone(
-            identifier
-          );
+            if (!passwordMatch) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid email/phone or password",
+                });
+            }
 
-        if (!phone) {
-          return res.status(400).json({
-            error:
-              "Please enter a valid email or Indian phone number.",
-          });
+            if (!user.emailVerified) {
+                return res.status(403).json({
+                    success: false,
+                    requiresOtp: true,
+                    error:
+                        "Please verify your email before login.",
+                    email: maskEmail(user.email),
+                });
+            }
+
+            const token = createToken(user._id);
+
+            try {
+                await Activity.create({
+                    user: user._id,
+                    action: "login",
+                    message: "User logged in",
+                });
+            } catch (activityError) {
+                console.error(
+                    "ACTIVITY ERROR:",
+                    activityError
+                );
+            }
+
+            return res.status(200).json({
+                success: true,
+                token,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    phone: user.phone,
+                },
+            });
+        } catch (error) {
+            console.error("LOGIN ERROR:", error);
+
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
         }
-
-        user =
-          await User.findOne({
-            phone,
-          });
-      }
-
-      // --------------------------------------------------------
-      // USER NOT FOUND
-      // --------------------------------------------------------
-
-      if (!user) {
-        return res.status(401).json({
-          error:
-            "Invalid email/phone or password.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // PASSWORD
-      // --------------------------------------------------------
-
-      const passwordMatch =
-        await bcrypt.compare(
-          password,
-          user.password
-        );
-
-      if (!passwordMatch) {
-        return res.status(401).json({
-          error:
-            "Invalid email/phone or password.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // EMAIL VERIFICATION
-      // --------------------------------------------------------
-
-      if (!user.emailVerified) {
-        return res.status(403).json({
-          error:
-            "Please verify your email with OTP before logging in.",
-
-          requiresVerification: true,
-
-          userId: user._id,
-
-          email: maskEmail(
-            user.email
-          ),
-        });
-      }
-
-      // --------------------------------------------------------
-      // CREATE TOKEN
-      // --------------------------------------------------------
-
-      const authToken =
-        createToken(user._id);
-
-      // --------------------------------------------------------
-      // ACTIVITY
-      // --------------------------------------------------------
-
-      await Activity.create({
-        user: user._id,
-        action: "login",
-        message:
-          "Logged into iNotebook",
-        date: new Date(),
-      });
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        authToken,
-        message:
-          "Login successful.",
-
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone || "",
-        },
-      });
-
-    } catch (error) {
-      console.error(
-        "LOGIN ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
     }
-  }
 );
 
 // ============================================================
 // FORGOT PASSWORD
 // POST /api/auth/forgotPassword
-// Supports Email OR Phone
 // ============================================================
 
 router.post(
-  "/forgotPassword",
-  otpSendLimiter,
+    "/forgotPassword",
+    otpSendLimiter,
 
-  [
-    body("identifier")
-      .trim()
-      .notEmpty()
-      .withMessage(
-        "Email or phone number is required"
-      ),
-  ],
+    [
+        body("identifier")
+            .trim()
+            .notEmpty()
+            .withMessage("Email or phone is required"),
+    ],
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      const identifier =
-        req.body.identifier.trim();
+            const { identifier } = req.body;
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
+            const value = identifier.trim();
 
-      let user;
+            let user;
 
-      if (isEmail(identifier)) {
-        user =
-          await User.findOne({
-            email:
-              identifier.toLowerCase(),
-          });
-      } else {
-        const phone =
-          normalizePhone(
-            identifier
-          );
+            if (isEmail(value)) {
+                user = await User.findOne({
+                    email: value.toLowerCase(),
+                });
+            } else {
+                user = await User.findOne({
+                    phone: normalizePhone(value),
+                });
+            }
 
-        if (!phone) {
-          return res.status(400).json({
-            error:
-              "Please enter a valid email or Indian phone number.",
-          });
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error:
+                        "No account found with these details.",
+                });
+            }
+
+            if (!user.emailVerified) {
+                return res.status(403).json({
+                    success: false,
+                    error:
+                        "Please verify your email before resetting your password.",
+                });
+            }
+
+            const otp = generateOtp();
+
+            user.otpHash = hashOtp(otp);
+
+            user.otpExpires = new Date(
+                Date.now() + 10 * 60 * 1000
+            );
+
+            user.otpPurpose = "forgot-password";
+            user.otpAttempts = 0;
+
+            await user.save();
+
+            try {
+                await sendOtpEmail({
+                    email: user.email,
+                    otp,
+                    purpose: "forgot-password",
+                });
+            } catch (emailError) {
+                console.error(
+                    "FORGOT PASSWORD EMAIL ERROR:",
+                    emailError
+                );
+
+                return res.status(503).json({
+                    success: false,
+                    error:
+                        "Unable to send OTP email. Please try again later.",
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                requiresOtp: true,
+                message:
+                    "Password reset OTP sent to your email.",
+                email: maskEmail(user.email),
+            });
+        } catch (error) {
+            console.error(
+                "FORGOT PASSWORD ERROR:",
+                error
+            );
+
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
         }
-
-        user =
-          await User.findOne({
-            phone,
-          });
-      }
-
-      // --------------------------------------------------------
-      // USER NOT FOUND
-      // --------------------------------------------------------
-
-      if (!user) {
-        return res.status(404).json({
-          error:
-            "No account found with these details.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // EMAIL MUST BE VERIFIED
-      // --------------------------------------------------------
-
-      if (!user.emailVerified) {
-        return res.status(400).json({
-          error:
-            "Please verify your account before resetting the password.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // GENERATE OTP
-      // --------------------------------------------------------
-
-      const otp = generateOtp();
-
-      const hashedOtp =
-        hashOtp(otp);
-
-      user.otp = hashedOtp;
-
-      user.otpExpiry = new Date(
-        Date.now() + 10 * 60 * 1000
-      );
-
-      user.otpPurpose =
-        "forgot-password";
-
-      user.otpAttempts = 0;
-
-      await user.save();
-
-      // --------------------------------------------------------
-      // SEND OTP
-      // --------------------------------------------------------
-
-      try {
-        await sendOtpEmail({
-          email: user.email,
-          otp,
-          purpose:
-            "forgot-password",
-        });
-      } catch (emailError) {
-        console.error(
-          "FORGOT PASSWORD EMAIL ERROR:",
-          emailError
-        );
-
-        clearOtp(user);
-
-        await user.save();
-
-        return res.status(500).json({
-          error:
-            "Unable to send OTP email.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        requiresOtp: true,
-        message:
-          "OTP sent to your registered email.",
-        userId: user._id,
-        email: maskEmail(
-          user.email
-        ),
-        phone: maskPhone(
-          user.phone
-        ),
-      });
-
-    } catch (error) {
-      console.error(
-        "FORGOT PASSWORD ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
     }
-  }
 );
 
 // ============================================================
@@ -1462,168 +1126,103 @@ router.post(
 // ============================================================
 
 router.post(
-  "/ResetPassword",
+    "/ResetPassword",
 
-  [
-    body("resetToken")
-      .notEmpty()
-      .withMessage(
-        "Reset token is required"
-      ),
+    [
+        body("resetToken")
+            .trim()
+            .notEmpty()
+            .withMessage("Reset token is required"),
 
-    body("newPassword")
-      .isLength({ min: 5 })
-      .withMessage(
-        "Password must be at least 5 characters"
-      ),
+        body("newPassword")
+            .isLength({ min: 6 })
+            .withMessage(
+                "New password must be at least 6 characters"
+            ),
+    ],
 
-    body("confirmPassword")
-      .notEmpty()
-      .withMessage(
-        "Please confirm your password"
-      ),
-  ],
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            const {
+                resetToken,
+                newPassword,
+            } = req.body;
 
-      const {
-        resetToken,
-        newPassword,
-        confirmPassword,
-      } = req.body;
+            const hashedResetToken = crypto
+                .createHash("sha256")
+                .update(resetToken)
+                .digest("hex");
 
-      // --------------------------------------------------------
-      // PASSWORD MATCH
-      // --------------------------------------------------------
+            const user = await User.findOne({
+                passwordResetToken: hashedResetToken,
+                passwordResetExpires: {
+                    $gt: new Date(),
+                },
+            });
 
-      if (
-        newPassword !==
-        confirmPassword
-      ) {
-        return res.status(400).json({
-          error:
-            "Passwords do not match.",
-        });
-      }
+            if (!user) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "Invalid or expired reset token.",
+                });
+            }
 
-      // --------------------------------------------------------
-      // VERIFY RESET TOKEN
-      // --------------------------------------------------------
+            const salt = await bcrypt.genSalt(10);
 
-      let decoded;
+            const hashedPassword =
+                await bcrypt.hash(
+                    newPassword,
+                    salt
+                );
 
-      try {
-        decoded =
-          jwt.verify(
-            resetToken,
-            JWT_SECRET
-          );
-      } catch (tokenError) {
-        return res.status(400).json({
-          error:
-            "Password reset session has expired. Please request a new OTP.",
-        });
-      }
+            user.password = hashedPassword;
 
-      // --------------------------------------------------------
-      // CHECK TOKEN PURPOSE
-      // --------------------------------------------------------
+            user.passwordResetToken = undefined;
+            user.passwordResetExpires = undefined;
 
-      if (
-        decoded.purpose !==
-        "password-reset"
-      ) {
-        return res.status(400).json({
-          error:
-            "Invalid password reset token.",
-        });
-      }
+            await user.save();
 
-      const userId =
-        decoded.user?.id;
+            try {
+                await Activity.create({
+                    user: user._id,
+                    action: "password_reset",
+                    message:
+                        "Password reset successfully",
+                });
+            } catch (activityError) {
+                console.error(
+                    "ACTIVITY ERROR:",
+                    activityError
+                );
+            }
 
-      if (!userId) {
-        return res.status(400).json({
-          error:
-            "Invalid password reset token.",
-        });
-      }
+            return res.status(200).json({
+                success: true,
+                message:
+                    "Password reset successfully. You can now login.",
+            });
+        } catch (error) {
+            console.error(
+                "RESET PASSWORD ERROR:",
+                error
+            );
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
-
-      const user =
-        await User.findById(userId);
-
-      if (!user) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // HASH NEW PASSWORD
-      // --------------------------------------------------------
-
-      const salt =
-        await bcrypt.genSalt(10);
-
-      const hashedPassword =
-        await bcrypt.hash(
-          newPassword,
-          salt
-        );
-
-      user.password =
-        hashedPassword;
-
-      clearOtp(user);
-
-      await user.save();
-
-      // --------------------------------------------------------
-      // ACTIVITY
-      // --------------------------------------------------------
-
-      await Activity.create({
-        user: user._id,
-        action: "password-reset",
-        message:
-          "Reset account password",
-        date: new Date(),
-      });
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        message:
-          "Password reset successfully.",
-      });
-
-    } catch (error) {
-      console.error(
-        "RESET PASSWORD ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
+        }
     }
-  }
 );
 
 // ============================================================
@@ -1633,37 +1232,40 @@ router.post(
 // ============================================================
 
 router.post(
-  "/getUser",
-  fetchuser,
+    "/getUser",
+    fetchuser,
 
-  async (req, res) => {
-    try {
-      const user =
-        await User.findById(
-          req.user.id
-        ).select(
-          "-password -otp -otpExpiry -otpAttempts"
-        );
+    async (req, res) => {
+        try {
+            const user = await User.findById(
+                req.user.id
+            ).select(
+                "-password -otpHash -otpExpires -otpPurpose -otpAttempts -passwordResetToken -passwordResetExpires"
+            );
 
-      if (!user) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
 
-      return res.json(user);
+            return res.status(200).json({
+                success: true,
+                user,
+            });
+        } catch (error) {
+            console.error(
+                "GET USER ERROR:",
+                error
+            );
 
-    } catch (error) {
-      console.error(
-        "GET USER ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
+        }
     }
-  }
 );
 
 // ============================================================
@@ -1673,252 +1275,178 @@ router.post(
 // ============================================================
 
 router.put(
-  "/updateProfile",
-  fetchuser,
+    "/updateProfile",
+    fetchuser,
 
-  [
-    body("name")
-      .trim()
-      .isLength({ min: 3 })
-      .withMessage(
-        "Name must be at least 3 characters"
-      ),
+    [
+        body("name")
+            .optional()
+            .trim()
+            .isLength({ min: 2 })
+            .withMessage(
+                "Name must be at least 2 characters"
+            ),
 
-    body("email")
-      .trim()
-      .isEmail()
-      .withMessage(
-        "Please enter a valid email"
-      ),
+        body("email")
+            .optional()
+            .trim()
+            .isEmail()
+            .withMessage("Invalid email")
+            .normalizeEmail(),
 
-    body("phone")
-      .optional({ checkFalsy: true })
-      .trim(),
-  ],
+        body("phone")
+            .optional()
+            .trim(),
+    ],
 
-  async (req, res) => {
-    try {
-      // --------------------------------------------------------
-      // VALIDATION
-      // --------------------------------------------------------
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      const errors =
-        validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            const user = await User.findById(
+                req.user.id
+            );
 
-      const userId =
-        req.user.id;
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
 
-      // --------------------------------------------------------
-      // CURRENT USER
-      // --------------------------------------------------------
+            const {
+                name,
+                email,
+                phone,
+            } = req.body;
 
-      const currentUser =
-        await User.findById(userId);
+            // ------------------------------------------------
+            // Update name
+            // ------------------------------------------------
 
-      if (!currentUser) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
+            if (name !== undefined) {
+                user.name = name.trim();
+            }
 
-      // --------------------------------------------------------
-      // DATA
-      // --------------------------------------------------------
+            // ------------------------------------------------
+            // Update email
+            // ------------------------------------------------
 
-      const name =
-        req.body.name.trim();
+            if (email !== undefined) {
+                const normalizedEmail =
+                    email.toLowerCase().trim();
 
-      const email =
-        req.body.email
-          .trim()
-          .toLowerCase();
+                if (!isEmail(normalizedEmail)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Invalid email",
+                    });
+                }
 
-      let phone =
-        req.body.phone
-          ? req.body.phone.trim()
-          : currentUser.phone || null;
+                const existingEmail =
+                    await User.findOne({
+                        email: normalizedEmail,
+                        _id: {
+                            $ne: user._id,
+                        },
+                    });
 
-      // --------------------------------------------------------
-      // NAME
-      // --------------------------------------------------------
+                if (existingEmail) {
+                    return res.status(400).json({
+                        success: false,
+                        error:
+                            "Email is already in use",
+                    });
+                }
 
-      if (!name) {
-        return res.status(400).json({
-          error:
-            "Name cannot be empty.",
-        });
-      }
+                user.email = normalizedEmail;
+            }
 
-      if (name.length < 3) {
-        return res.status(400).json({
-          error:
-            "Name must be at least 3 characters.",
-        });
-      }
+            // ------------------------------------------------
+            // Update phone
+            // ------------------------------------------------
 
-      // --------------------------------------------------------
-      // EMAIL
-      // --------------------------------------------------------
+            if (phone !== undefined) {
+                const normalizedPhone =
+                    normalizePhone(phone);
 
-      if (!email) {
-        return res.status(400).json({
-          error:
-            "Email cannot be empty.",
-        });
-      }
+                if (
+                    !/^\+91[6-9]\d{9}$/.test(
+                        normalizedPhone
+                    )
+                ) {
+                    return res.status(400).json({
+                        success: false,
+                        error:
+                            "Please enter a valid Indian phone number",
+                    });
+                }
 
-      // --------------------------------------------------------
-      // PHONE
-      // --------------------------------------------------------
+                const existingPhone =
+                    await User.findOne({
+                        phone: normalizedPhone,
+                        _id: {
+                            $ne: user._id,
+                        },
+                    });
 
-      if (phone) {
-        phone =
-          normalizePhone(phone);
+                if (existingPhone) {
+                    return res.status(400).json({
+                        success: false,
+                        error:
+                            "Phone number is already in use",
+                    });
+                }
 
-        if (!phone) {
-          return res.status(400).json({
-            error:
-              "Please enter a valid Indian phone number.",
-          });
+                user.phone = normalizedPhone;
+            }
+
+            await user.save();
+
+            try {
+                await Activity.create({
+                    user: user._id,
+                    action: "profile_updated",
+                    message:
+                        "Profile updated successfully",
+                });
+            } catch (activityError) {
+                console.error(
+                    "ACTIVITY ERROR:",
+                    activityError
+                );
+            }
+
+            return res.status(200).json({
+                success: true,
+                message:
+                    "Profile updated successfully",
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    phone: user.phone,
+                },
+            });
+        } catch (error) {
+            console.error(
+                "UPDATE PROFILE ERROR:",
+                error
+            );
+
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
         }
-      }
-
-      // --------------------------------------------------------
-      // DUPLICATE EMAIL
-      // --------------------------------------------------------
-
-      const existingEmailUser =
-        await User.findOne({
-          email,
-          _id: {
-            $ne: userId,
-          },
-        });
-
-      if (existingEmailUser) {
-        return res.status(400).json({
-          error:
-            "This email address is already registered with another account.",
-        });
-      }
-
-      // --------------------------------------------------------
-      // DUPLICATE PHONE
-      // --------------------------------------------------------
-
-      if (phone) {
-        const existingPhoneUser =
-          await User.findOne({
-            phone,
-            _id: {
-              $ne: userId,
-            },
-          });
-
-        if (existingPhoneUser) {
-          return res.status(400).json({
-            error:
-              "This phone number is already registered with another account.",
-          });
-        }
-      }
-
-      // --------------------------------------------------------
-      // CHECK EMAIL CHANGE
-      // --------------------------------------------------------
-
-      const emailChanged =
-        currentUser.email !==
-        email;
-
-      // --------------------------------------------------------
-      // UPDATE
-      // --------------------------------------------------------
-
-      currentUser.name = name;
-      currentUser.email = email;
-      currentUser.phone = phone;
-
-      await currentUser.save();
-
-      // --------------------------------------------------------
-      // ACTIVITY
-      // --------------------------------------------------------
-
-      await Activity.create({
-        user: userId,
-        action: "profile-updated",
-        message: emailChanged
-          ? "Updated profile information and email address"
-          : "Updated profile information",
-        date: new Date(),
-      });
-
-      // --------------------------------------------------------
-      // GET UPDATED USER
-      // --------------------------------------------------------
-
-      const updatedUser =
-        await User.findById(
-          userId
-        ).select(
-          "-password -otp -otpExpiry -otpAttempts"
-        );
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        message:
-          "Profile updated successfully.",
-        name:
-          updatedUser.name,
-        email:
-          updatedUser.email,
-        phone:
-          updatedUser.phone || "",
-        user: updatedUser,
-      });
-
-    } catch (error) {
-      console.error(
-        "UPDATE PROFILE ERROR:",
-        error
-      );
-
-      if (error.code === 11000) {
-        if (
-          error.keyPattern?.email
-        ) {
-          return res.status(400).json({
-            error:
-              "This email address is already registered.",
-          });
-        }
-
-        if (
-          error.keyPattern?.phone
-        ) {
-          return res.status(400).json({
-            error:
-              "This phone number is already registered.",
-          });
-        }
-      }
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
     }
-  }
 );
 
 // ============================================================
@@ -1928,157 +1456,136 @@ router.put(
 // ============================================================
 
 router.put(
-  "/changePassword",
-  fetchuser,
+    "/changePassword",
+    fetchuser,
 
-  [
-    body("currentPassword")
-      .notEmpty()
-      .withMessage(
-        "Current password is required"
-      ),
+    [
+        body("currentPassword")
+            .notEmpty()
+            .withMessage(
+                "Current password is required"
+            ),
 
-    body("newPassword")
-      .isLength({ min: 5 })
-      .withMessage(
-        "New password must be at least 5 characters"
-      ),
+        body("newPassword")
+            .isLength({ min: 6 })
+            .withMessage(
+                "New password must be at least 6 characters"
+            ),
 
-    body("confirmPassword")
-      .notEmpty()
-      .withMessage(
-        "Please confirm your new password"
-      ),
-  ],
+        body("confirmPassword")
+            .notEmpty()
+            .withMessage(
+                "Please confirm your new password"
+            ),
+    ],
 
-  async (req, res) => {
-    try {
-      const errors =
-        validationResult(req);
+    async (req, res) => {
+        try {
+            const errors = validationResult(req);
 
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          errors: errors.array(),
-        });
-      }
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    success: false,
+                    errors: errors.array(),
+                });
+            }
 
-      const {
-        currentPassword,
-        newPassword,
-        confirmPassword,
-      } = req.body;
+            const {
+                currentPassword,
+                newPassword,
+                confirmPassword,
+            } = req.body;
 
-      // --------------------------------------------------------
-      // MATCH
-      // --------------------------------------------------------
+            if (newPassword !== confirmPassword) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "New passwords do not match",
+                });
+            }
 
-      if (
-        newPassword !==
-        confirmPassword
-      ) {
-        return res.status(400).json({
-          error:
-            "New passwords do not match.",
-        });
-      }
+            const user = await User.findById(
+                req.user.id
+            );
 
-      // --------------------------------------------------------
-      // FIND USER
-      // --------------------------------------------------------
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
 
-      const user =
-        await User.findById(
-          req.user.id
-        );
+            const currentPasswordMatch =
+                await bcrypt.compare(
+                    currentPassword,
+                    user.password
+                );
 
-      if (!user) {
-        return res.status(404).json({
-          error: "User not found.",
-        });
-      }
+            if (!currentPasswordMatch) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "Current password is incorrect",
+                });
+            }
 
-      // --------------------------------------------------------
-      // CURRENT PASSWORD
-      // --------------------------------------------------------
+            const samePassword =
+                await bcrypt.compare(
+                    newPassword,
+                    user.password
+                );
 
-      const passwordMatch =
-        await bcrypt.compare(
-          currentPassword,
-          user.password
-        );
+            if (samePassword) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "New password must be different from the current password",
+                });
+            }
 
-      if (!passwordMatch) {
-        return res.status(400).json({
-          error:
-            "Current password is incorrect.",
-        });
-      }
+            const salt = await bcrypt.genSalt(10);
 
-      // --------------------------------------------------------
-      // SAME PASSWORD
-      // --------------------------------------------------------
+            const hashedPassword =
+                await bcrypt.hash(
+                    newPassword,
+                    salt
+                );
 
-      const samePassword =
-        await bcrypt.compare(
-          newPassword,
-          user.password
-        );
+            user.password = hashedPassword;
 
-      if (samePassword) {
-        return res.status(400).json({
-          error:
-            "New password must be different from your current password.",
-        });
-      }
+            await user.save();
 
-      // --------------------------------------------------------
-      // HASH NEW PASSWORD
-      // --------------------------------------------------------
+            try {
+                await Activity.create({
+                    user: user._id,
+                    action: "password_changed",
+                    message:
+                        "Password changed successfully",
+                });
+            } catch (activityError) {
+                console.error(
+                    "ACTIVITY ERROR:",
+                    activityError
+                );
+            }
 
-      const salt =
-        await bcrypt.genSalt(10);
+            return res.status(200).json({
+                success: true,
+                message:
+                    "Password changed successfully",
+            });
+        } catch (error) {
+            console.error(
+                "CHANGE PASSWORD ERROR:",
+                error
+            );
 
-      user.password =
-        await bcrypt.hash(
-          newPassword,
-          salt
-        );
-
-      await user.save();
-
-      // --------------------------------------------------------
-      // ACTIVITY
-      // --------------------------------------------------------
-
-      await Activity.create({
-        user: user._id,
-        action: "password-changed",
-        message:
-          "Changed account password",
-        date: new Date(),
-      });
-
-      // --------------------------------------------------------
-      // RESPONSE
-      // --------------------------------------------------------
-
-      return res.json({
-        success: true,
-        message:
-          "Password changed successfully.",
-      });
-
-    } catch (error) {
-      console.error(
-        "CHANGE PASSWORD ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        error: "Internal server error",
-      });
+            return res.status(500).json({
+                success: false,
+                error: "Internal server error",
+            });
+        }
     }
-  }
 );
 
 // ============================================================
