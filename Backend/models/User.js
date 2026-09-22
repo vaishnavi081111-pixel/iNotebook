@@ -42,31 +42,55 @@ const UserSchema = new Schema(
       default: false,
     },
 
-    otp: {
+    // ================================
+    // OTP FIELDS
+    // ================================
+
+    otpHash: {
       type: String,
       default: null,
     },
 
-    otpExpiry: {
+    otpExpires: {
       type: Date,
       default: null,
     },
 
     otpPurpose: {
-  type: String,
-  enum: ["signup", "forgot-password"],
-  default: null,
-},
+      type: String,
+      enum: ["signup", "forgot-password"],
+      default: null,
+    },
+
     otpAttempts: {
       type: Number,
       default: 0,
     },
+
+    // ================================
+    // PASSWORD RESET
+    // ================================
+
+    passwordResetToken: {
+      type: String,
+      default: null,
+    },
+
+    passwordResetExpires: {
+      type: Date,
+      default: null,
+    },
+
+    // ================================
+    // DATE
+    // ================================
 
     date: {
       type: Date,
       default: Date.now,
     },
   },
+
   {
     timestamps: true,
   }
