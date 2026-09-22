@@ -1973,7 +1973,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
-const nodemailer = require("nodemailer");
+//const nodemailer = require("nodemailer");
 
 const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
@@ -1995,17 +1995,17 @@ const JWT_SECRET =
 // GMAIL CONFIGURATION
 // ============================================================
 
-const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    requireTLS: true,
-    family: 4,
-    auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-    },
-});
+// //const transporter = nodemailer.createTransport({
+//     host: "smtp.gmail.com",
+//     port: 587,
+//     secure: false,
+//     requireTLS: true,
+//     family: 4,
+//     auth: {
+//         user: process.env.GMAIL_USER,
+//         pass: process.env.GMAIL_APP_PASSWORD,
+//     },
+// });
 
 // ============================================================
 // RATE LIMITERS
@@ -2151,194 +2151,87 @@ const clearOtp = (user) => {
 // GMAIL EMAIL FUNCTION
 // ============================================================
 
-const sendOtpEmail = async ({
-    email,
-    otp,
-    purpose = "signup",
-}) => {
-    if (
-        !process.env.GMAIL_USER ||
-        !process.env.GMAIL_APP_PASSWORD
-    ) {
-        throw new Error(
-            "Gmail email configuration is missing"
-        );
-    }
-
-    const isSignup = purpose === "signup";
-
-    const subject = isSignup
-        ? "iNotebook - Verify Your Email"
-        : "iNotebook - Password Reset OTP";
-
-    const heading = isSignup
-        ? "Verify Your Email"
-        : "Reset Your Password";
-
-    const message = isSignup
-        ? "Use the OTP below to verify your iNotebook account."
-        : "Use the OTP below to reset your iNotebook password.";
-
+const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
     try {
-        const info = await transporter.sendMail({
-            from: `"iNotebook." <${process.env.GMAIL_USER}>`,
-            to: email,
-            subject,
+        if (!process.env.BREVO_API_KEY) {
+            throw new Error("Brevo API configuration is missing");
+        }
 
-            html: `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
+        if (!process.env.GMAIL_USER) {
+            throw new Error("Sender email configuration is missing");
+        }
 
-                    <meta
-                        name="viewport"
-                        content="width=device-width, initial-scale=1.0"
-                    >
+        let subject = "iNotebook - Verify your email";
 
-                    <title>${subject}</title>
-                </head>
+        if (purpose === "forgot-password") {
+            subject = "iNotebook - Password Reset OTP";
+        }
 
-                <body style="
-                    margin: 0;
-                    padding: 0;
-                    background-color: #f5f3ff;
-                    font-family: Arial, Helvetica, sans-serif;
+        const htmlContent = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+                <h2 style="color: #6366f1;">iNotebook.</h2>
+
+                <p>Your OTP is:</p>
+
+                <div style="
+                    font-size: 32px;
+                    font-weight: bold;
+                    letter-spacing: 8px;
+                    color: #4f46e5;
+                    margin: 20px 0;
                 ">
+                    ${otp}
+                </div>
 
-                    <div style="
-                        max-width: 600px;
-                        margin: 40px auto;
-                        padding: 0 20px;
-                    ">
+                <p>This OTP is valid for <strong>10 minutes</strong>.</p>
 
-                        <div style="
-                            background: #ffffff;
-                            border-radius: 18px;
-                            padding: 40px;
-                            box-shadow:
-                                0 10px 35px
-                                rgba(0,0,0,0.08);
-                        ">
+                <p>If you did not request this OTP, please ignore this email.</p>
 
-                            <div style="
-                                text-align: center;
-                                margin-bottom: 30px;
-                            ">
+                <hr>
 
-                                <h1 style="
-                                    margin: 0;
-                                    color: #6366f1;
-                                    font-size: 32px;
-                                ">
-                                    iNotebook.
-                                </h1>
+                <p style="color: #777; font-size: 12px;">
+                    This is an automated email from iNotebook.
+                </p>
+            </div>
+        `;
 
-                            </div>
-
-                            <h2 style="
-                                color: #222222;
-                                margin-bottom: 15px;
-                            ">
-                                ${heading}
-                            </h2>
-
-                            <p style="
-                                color: #555555;
-                                font-size: 16px;
-                                line-height: 1.6;
-                            ">
-                                ${message}
-                            </p>
-
-                            <div style="
-                                margin: 30px 0;
-                                padding: 25px;
-                                background: #eef2ff;
-                                border-radius: 14px;
-                                text-align: center;
-                            ">
-
-                                <p style="
-                                    margin: 0 0 10px;
-                                    color: #666666;
-                                    font-size: 14px;
-                                ">
-                                    Your OTP
-                                </p>
-
-                                <div style="
-                                    color: #4f46e5;
-                                    font-size: 38px;
-                                    font-weight: bold;
-                                    letter-spacing: 8px;
-                                ">
-                                    ${otp}
-                                </div>
-
-                            </div>
-
-                            <p style="
-                                color: #666666;
-                                font-size: 14px;
-                                line-height: 1.6;
-                            ">
-                                This OTP is valid for 10 minutes.
-                            </p>
-
-                            <p style="
-                                color: #999999;
-                                font-size: 13px;
-                                line-height: 1.6;
-                                margin-top: 25px;
-                            ">
-                                If you did not request this OTP,
-                                you can safely ignore this email.
-                            </p>
-
-                            <hr style="
-                                border: none;
-                                border-top: 1px solid #eeeeee;
-                                margin: 30px 0;
-                            ">
-
-                            <p style="
-                                text-align: center;
-                                color: #aaaaaa;
-                                font-size: 12px;
-                                margin: 0;
-                            ">
-                                © ${new Date().getFullYear()}
-                                iNotebook.
-                                All rights reserved.
-                            </p>
-
-                        </div>
-
-                    </div>
-
-                </body>
-                </html>
-            `,
+        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+                "accept": "application/json",
+                "api-key": process.env.BREVO_API_KEY,
+                "content-type": "application/json",
+            },
+            body: JSON.stringify({
+                sender: {
+                    name: "iNotebook.",
+                    email: process.env.GMAIL_USER,
+                },
+                to: [
+                    {
+                        email: email,
+                    },
+                ],
+                subject,
+                htmlContent,
+            }),
         });
 
-        console.log(
-            "GMAIL EMAIL SENT SUCCESSFULLY:",
-            info.messageId
-        );
+        const data = await response.json();
 
-        return info;
+        if (!response.ok) {
+            console.error("BREVO EMAIL ERROR:", data);
+            throw new Error(data.message || "Brevo email sending failed");
+        }
 
+        console.log("BREVO EMAIL SENT SUCCESSFULLY:", data.messageId);
+
+        return data;
     } catch (error) {
-        console.error(
-            "GMAIL OTP EMAIL ERROR:",
-            error
-        );
-
+        console.error("BREVO OTP EMAIL ERROR:", error);
         throw error;
     }
 };
-
 // ============================================================
 // CREATE USER
 // POST /api/auth/createUser
