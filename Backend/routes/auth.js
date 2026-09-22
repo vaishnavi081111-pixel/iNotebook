@@ -4,7 +4,10 @@
 // const jwt = require("jsonwebtoken");
 // const crypto = require("crypto");
 // const rateLimit = require("express-rate-limit");
-// const nodemailer = require("nodemailer");
+// //const nodemailer = require("nodemailer");
+
+// const dns = require("dns");
+// dns.setDefaultResultOrder("ipv4first");
 
 // const User = require("../models/User");
 // const Activity = require("../models/Activity");
@@ -19,13 +22,22 @@
 // const JWT_SECRET =
 //     process.env.JWT_SECRET || "inotebook-secret-key";
 
-// const transporter = nodemailer.createTransport({
-//     service: "gmail",
-//     auth: {
-//         user: process.env.GMAIL_USER,
-//         pass: process.env.GMAIL_APP_PASSWORD,
-//     },
-// });
+// // ============================================================
+// // GMAIL CONFIGURATION
+// // ============================================================
+
+// // //const transporter = nodemailer.createTransport({
+// //     host: "smtp.gmail.com",
+// //     port: 587,
+// //     secure: false,
+// //     requireTLS: true,
+// //     family: 4,
+// //     auth: {
+// //         user: process.env.GMAIL_USER,
+// //         pass: process.env.GMAIL_APP_PASSWORD,
+// //     },
+// // });
+
 // // ============================================================
 // // RATE LIMITERS
 // // ============================================================
@@ -35,7 +47,8 @@
 //     max: 15,
 //     message: {
 //         success: false,
-//         error: "Too many login attempts. Please try again later.",
+//         error:
+//             "Too many login attempts. Please try again later.",
 //     },
 //     standardHeaders: true,
 //     legacyHeaders: false,
@@ -46,7 +59,8 @@
 //     max: 10,
 //     message: {
 //         success: false,
-//         error: "Too many OTP requests. Please try again later.",
+//         error:
+//             "Too many OTP requests. Please try again later.",
 //     },
 //     standardHeaders: true,
 //     legacyHeaders: false,
@@ -57,7 +71,8 @@
 //     max: 15,
 //     message: {
 //         success: false,
-//         error: "Too many OTP verification attempts. Please try again later.",
+//         error:
+//             "Too many OTP verification attempts. Please try again later.",
 //     },
 //     standardHeaders: true,
 //     legacyHeaders: false,
@@ -164,193 +179,87 @@
 // };
 
 // // ============================================================
-// // RESEND EMAIL FUNCTION
+// // GMAIL EMAIL FUNCTION
 // // ============================================================
 
-// const sendOtpEmail = async ({
-//     email,
-//     otp,
-//     purpose = "signup",
-// }) => {
-// if (
-//     !process.env.GMAIL_USER ||
-//     !process.env.GMAIL_APP_PASSWORD
-// ) {
-//     throw new Error(
-//         "Gmail email configuration is missing"
-//     );
-// }
-
-//     const isSignup = purpose === "signup";
-
-//     const subject = isSignup
-//         ? "iNotebook - Verify Your Email"
-//         : "iNotebook - Password Reset OTP";
-
-//     const heading = isSignup
-//         ? "Verify Your Email"
-//         : "Reset Your Password";
-
-//     const message = isSignup
-//         ? "Use the OTP below to verify your iNotebook account."
-//         : "Use the OTP below to reset your iNotebook password.";
-
+// const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
 //     try {
-//     const info = await transporter.sendMail({
-//         from: `"iNotebook." <${process.env.GMAIL_USER}>`,
+//         if (!process.env.BREVO_API_KEY) {
+//             throw new Error("Brevo API configuration is missing");
+//         }
 
-//         to: email,
+//         if (!process.env.GMAIL_USER) {
+//             throw new Error("Sender email configuration is missing");
+//         }
 
-//         subject,
+//         let subject = "iNotebook - Verify your email";
 
-//         html: `
-//                     <!DOCTYPE html>
-//                     <html>
-//                     <head>
-//                         <meta charset="UTF-8">
-//                         <meta
-//                             name="viewport"
-//                             content="width=device-width, initial-scale=1.0"
-//                         >
-//                         <title>${subject}</title>
-//                     </head>
+//         if (purpose === "forgot-password") {
+//             subject = "iNotebook - Password Reset OTP";
+//         }
 
-//                     <body style="
-//                         margin: 0;
-//                         padding: 0;
-//                         background-color: #f5f3ff;
-//                         font-family: Arial, Helvetica, sans-serif;
-//                     ">
+//         const htmlContent = `
+//             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+//                 <h2 style="color: #6366f1;">iNotebook.</h2>
 
-//                         <div style="
-//                             max-width: 600px;
-//                             margin: 40px auto;
-//                             padding: 0 20px;
-//                         ">
+//                 <p>Your OTP is:</p>
 
-//                             <div style="
-//                                 background: #ffffff;
-//                                 border-radius: 18px;
-//                                 padding: 40px;
-//                                 box-shadow:
-//                                     0 10px 35px
-//                                     rgba(0,0,0,0.08);
-//                             ">
+//                 <div style="
+//                     font-size: 32px;
+//                     font-weight: bold;
+//                     letter-spacing: 8px;
+//                     color: #4f46e5;
+//                     margin: 20px 0;
+//                 ">
+//                     ${otp}
+//                 </div>
 
-//                                 <div style="
-//                                     text-align: center;
-//                                     margin-bottom: 30px;
-//                                 ">
+//                 <p>This OTP is valid for <strong>10 minutes</strong>.</p>
 
-//                                     <h1 style="
-//                                         margin: 0;
-//                                         color: #6366f1;
-//                                         font-size: 32px;
-//                                     ">
-//                                         iNotebook.
-//                                     </h1>
+//                 <p>If you did not request this OTP, please ignore this email.</p>
 
-//                                 </div>
+//                 <hr>
 
-//                                 <h2 style="
-//                                     color: #222222;
-//                                     margin-bottom: 15px;
-//                                 ">
-//                                     ${heading}
-//                                 </h2>
+//                 <p style="color: #777; font-size: 12px;">
+//                     This is an automated email from iNotebook.
+//                 </p>
+//             </div>
+//         `;
 
-//                                 <p style="
-//                                     color: #555555;
-//                                     font-size: 16px;
-//                                     line-height: 1.6;
-//                                 ">
-//                                     ${message}
-//                                 </p>
+//         const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+//             method: "POST",
+//             headers: {
+//                 "accept": "application/json",
+//                 "api-key": process.env.BREVO_API_KEY,
+//                 "content-type": "application/json",
+//             },
+//             body: JSON.stringify({
+//                 sender: {
+//                     name: "iNotebook.",
+//                     email: process.env.GMAIL_USER,
+//                 },
+//                 to: [
+//                     {
+//                         email: email,
+//                     },
+//                 ],
+//                 subject,
+//                 htmlContent,
+//             }),
+//         });
 
-//                                 <div style="
-//                                     margin: 30px 0;
-//                                     padding: 25px;
-//                                     background: #eef2ff;
-//                                     border-radius: 14px;
-//                                     text-align: center;
-//                                 ">
+//         const data = await response.json();
 
-//                                     <p style="
-//                                         margin: 0 0 10px;
-//                                         color: #666666;
-//                                         font-size: 14px;
-//                                     ">
-//                                         Your OTP
-//                                     </p>
+//         if (!response.ok) {
+//             console.error("BREVO EMAIL ERROR:", data);
+//             throw new Error(data.message || "Brevo email sending failed");
+//         }
 
-//                                     <div style="
-//                                         color: #4f46e5;
-//                                         font-size: 38px;
-//                                         font-weight: bold;
-//                                         letter-spacing: 8px;
-//                                     ">
-//                                         ${otp}
-//                                     </div>
+//         console.log("BREVO EMAIL SENT SUCCESSFULLY:", data.messageId);
 
-//                                 </div>
-
-//                                 <p style="
-//                                     color: #666666;
-//                                     font-size: 14px;
-//                                     line-height: 1.6;
-//                                 ">
-//                                     This OTP is valid for 10 minutes.
-//                                 </p>
-
-//                                 <p style="
-//                                     color: #999999;
-//                                     font-size: 13px;
-//                                     line-height: 1.6;
-//                                     margin-top: 25px;
-//                                 ">
-//                                     If you did not request this OTP,
-//                                     you can safely ignore this email.
-//                                 </p>
-
-//                                 <hr style="
-//                                     border: none;
-//                                     border-top: 1px solid #eeeeee;
-//                                     margin: 30px 0;
-//                                 ">
-
-//                                 <p style="
-//                                     text-align: center;
-//                                     color: #aaaaaa;
-//                                     font-size: 12px;
-//                                     margin: 0;
-//                                 ">
-//                                     © ${new Date().getFullYear()}
-//                                     iNotebook.
-//                                     All rights reserved.
-//                                 </p>
-
-//                             </div>
-
-//                         </div>
-
-//                     </body>
-//                     </html>
-//                 `,
-//                   });
-        
-//         console.log(
-//             "GMAIL EMAIL SENT SUCCESSFULLY:",
-//             info.messageId
-//         );
-
-//         return info;
-
+//         return data;
 //     } catch (error) {
-//         console.error(
-//             "GMAIL OTP EMAIL ERROR:",
-//             error
-//         );
-
+//         console.error("BREVO OTP EMAIL ERROR:", error);
 //         throw error;
 //     }
 // };
@@ -491,23 +400,26 @@
 //                     phoneUser._id.toString() !==
 //                         user._id.toString())
 //             ) {
-//                 // Verified account
-//                 if (phoneUser.emailVerified) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         error:
-//                             "An account with this phone number already exists",
-//                     });
-//                 }
-
-//                 // Unverified account belonging
-//                 // to another email
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "This phone number is already associated with an unverified account. Please use the email used during the original signup.",
+//                         "This phone number is already registered.",
 //                 });
 //             }
+
+//             // ------------------------------------------------
+//             // Generate OTP
+//             // ------------------------------------------------
+
+//             const otp = generateOtp();
+
+//             const otpHash = hashOtp(otp);
+
+//             const otpExpires =
+//                 new Date(
+//                     Date.now() +
+//                         10 * 60 * 1000
+//                 );
 
 //             // ------------------------------------------------
 //             // Hash password
@@ -523,48 +435,26 @@
 //                 );
 
 //             // ------------------------------------------------
-//             // Generate OTP
-//             // ------------------------------------------------
-
-//             const otp = generateOtp();
-
-//             const otpHash =
-//                 hashOtp(otp);
-
-//             const otpExpires =
-//                 new Date(
-//                     Date.now() +
-//                     10 * 60 * 1000
-//                 );
-
-//             // ------------------------------------------------
-//             // Create / update user
+//             // Create or update unverified user
 //             // ------------------------------------------------
 
 //             if (!user) {
 //                 user = new User({
-//                     name: name.trim(),
+//                     name,
 //                     email: normalizedEmail,
 //                     phone: normalizedPhone,
 //                     password: hashedPassword,
-
 //                     emailVerified: false,
-//                     phoneVerified: false,
-
 //                     otpHash,
 //                     otpExpires,
 //                     otpPurpose: "signup",
 //                     otpAttempts: 0,
 //                 });
 //             } else {
-//                 // Existing unverified account
-//                 user.name = name.trim();
+//                 user.name = name;
 //                 user.phone = normalizedPhone;
 //                 user.password = hashedPassword;
-
 //                 user.emailVerified = false;
-//                 user.phoneVerified = false;
-
 //                 user.otpHash = otpHash;
 //                 user.otpExpires = otpExpires;
 //                 user.otpPurpose = "signup";
@@ -579,10 +469,6 @@
 //                 await user.save();
 
 //             } catch (saveError) {
-//                 console.error(
-//                     "CREATE USER SAVE ERROR:",
-//                     saveError
-//                 );
 
 //                 // MongoDB duplicate key
 //                 if (saveError.code === 11000) {
@@ -625,7 +511,7 @@
 //             }
 
 //             // ------------------------------------------------
-//             // Send OTP using Resend
+//             // Send OTP using Gmail
 //             // ------------------------------------------------
 
 //             try {
@@ -775,6 +661,10 @@
 //                 });
 //             }
 
+//             // ------------------------------------------------
+//             // Check OTP exists
+//             // ------------------------------------------------
+
 //             if (
 //                 !user.otpHash ||
 //                 !user.otpExpires
@@ -786,24 +676,42 @@
 //                 });
 //             }
 
+//             // ------------------------------------------------
+//             // Check OTP purpose
+//             // ------------------------------------------------
+
 //             if (
-//                 user.otpPurpose !==
-//                 purpose
+//                 user.otpPurpose &&
+//                 user.otpPurpose !== purpose
 //             ) {
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "Invalid OTP purpose",
+//                         "Invalid OTP purpose.",
 //                 });
 //             }
 
+//             // ------------------------------------------------
+//             // Check OTP expiry
+//             // ------------------------------------------------
+
 //             if (
 //                 new Date() >
-//                 user.otpExpires
+//                 new Date(user.otpExpires)
 //             ) {
 //                 clearOtp(user);
+//                 try {
+//     await user.save();
 
-//                 await user.save();
+//     console.log("OTP SAVED DEBUG:", {
+//         email: user.email,
+//         otpHashExists: !!user.otpHash,
+//         otpExpires: user.otpExpires,
+//         otpPurpose: user.otpPurpose,
+//     });
+
+// } catch (saveError) {
+                
 
 //                 return res.status(400).json({
 //                     success: false,
@@ -812,36 +720,49 @@
 //                 });
 //             }
 
+//             // ------------------------------------------------
+//             // Check attempts
+//             // ------------------------------------------------
+
 //             if (
-//                 (user.otpAttempts || 0) >= 5
+//                 user.otpAttempts >= 5
 //             ) {
 //                 clearOtp(user);
-
 //                 await user.save();
 
 //                 return res.status(429).json({
 //                     success: false,
 //                     error:
-//                         "Too many incorrect attempts. Please request a new OTP.",
+//                         "Too many incorrect OTP attempts. Please request a new OTP.",
 //                 });
 //             }
 
-//             const incomingOtpHash =
+//             // ------------------------------------------------
+//             // Compare OTP
+//             // ------------------------------------------------
+
+//             const hashedInputOtp =
 //                 hashOtp(otp);
 
 //             if (
-//                 incomingOtpHash !==
+//                 hashedInputOtp !==
 //                 user.otpHash
 //             ) {
 //                 user.otpAttempts =
-//                     (user.otpAttempts || 0) +
-//                     1;
+//                     (user.otpAttempts || 0) + 1;
 
 //                 await user.save();
+//                 console.log("OTP SAVED DEBUG:", {
+//     email: user.email,
+//     otpHashExists: !!user.otpHash,
+//     otpExpires: user.otpExpires,
+//     otpPurpose: user.otpPurpose,
+// });
 
 //                 return res.status(400).json({
 //                     success: false,
-//                     error: "Invalid OTP",
+//                     error:
+//                         "Invalid OTP.",
 //                     attemptsRemaining:
 //                         Math.max(
 //                             0,
@@ -852,84 +773,38 @@
 //             }
 
 //             // ------------------------------------------------
-//             // SIGNUP OTP
+//             // OTP verified
 //             // ------------------------------------------------
 
 //             if (purpose === "signup") {
 //                 user.emailVerified = true;
 
-//                 if (user.phone) {
-//                     user.phoneVerified =
-//                         true;
-//                 }
-
 //                 clearOtp(user);
 
 //                 await user.save();
 
-//                 try {
-//                     await Activity.create({
-//                         user: user._id,
-//                         action:
-//                             "account_created",
-//                         message:
-//                             "Account created and email verified",
-//                     });
-//                 } catch (
-//                     activityError
-//                 ) {
-//                     console.error(
-//                         "ACTIVITY ERROR:",
-//                         activityError
-//                     );
-//                 }
-
-//                 const token =
-//                     createToken(
-//                         user._id
-//                     );
-
 //                 return res.status(200).json({
 //                     success: true,
 //                     message:
-//                         "Email verified successfully",
-//                     token,
-//                     user: {
-//                         id: user._id,
-//                         name: user.name,
-//                         email: user.email,
-//                         phone: user.phone,
-//                     },
+//                         "Email verified successfully. You can now login.",
 //                 });
 //             }
 
 //             // ------------------------------------------------
-//             // FORGOT PASSWORD OTP
+//             // Forgot password OTP
 //             // ------------------------------------------------
 
 //             if (
 //                 purpose ===
 //                 "forgot-password"
 //             ) {
-//                 const resetToken =
-//                     createPasswordResetToken();
-
 //                 user.passwordResetToken =
-//                     crypto
-//                         .createHash(
-//                             "sha256"
-//                         )
-//                         .update(
-//                             resetToken
-//                         )
-//                         .digest("hex");
+//                     createPasswordResetToken();
 
 //                 user.passwordResetExpires =
 //                     new Date(
 //                         Date.now() +
-//                             15 *
-//                                 60 *
-//                                 1000
+//                             15 * 60 * 1000
 //                     );
 
 //                 clearOtp(user);
@@ -939,15 +814,16 @@
 //                 return res.status(200).json({
 //                     success: true,
 //                     message:
-//                         "OTP verified. You can now reset your password.",
-//                     resetToken,
+//                         "OTP verified successfully.",
+//                     resetToken:
+//                         user.passwordResetToken,
 //                 });
 //             }
 
 //             return res.status(400).json({
 //                 success: false,
 //                 error:
-//                     "Invalid OTP purpose",
+//                     "Invalid OTP purpose.",
 //             });
 
 //         } catch (error) {
@@ -964,7 +840,6 @@
 //         }
 //     }
 // );
-
 // // ============================================================
 // // RESEND OTP
 // // POST /api/auth/resendOtp
@@ -1022,9 +897,14 @@
 //             if (!user) {
 //                 return res.status(404).json({
 //                     success: false,
-//                     error: "User not found",
+//                     error:
+//                         "No account found with this email.",
 //                 });
 //             }
+
+//             // ------------------------------------------------
+//             // Signup OTP
+//             // ------------------------------------------------
 
 //             if (
 //                 purpose === "signup" &&
@@ -1033,24 +913,15 @@
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "Email is already verified",
+//                         "This email is already verified. Please login.",
 //                 });
 //             }
 
-//             if (
-//                 purpose ===
-//                     "forgot-password" &&
-//                 !user.emailVerified
-//             ) {
-//                 return res.status(400).json({
-//                     success: false,
-//                     error:
-//                         "Please verify your email before resetting your password.",
-//                 });
-//             }
+//             // ------------------------------------------------
+//             // Generate new OTP
+//             // ------------------------------------------------
 
-//             const otp =
-//                 generateOtp();
+//             const otp = generateOtp();
 
 //             user.otpHash =
 //                 hashOtp(otp);
@@ -1058,29 +929,27 @@
 //             user.otpExpires =
 //                 new Date(
 //                     Date.now() +
-//                         10 *
-//                             60 *
-//                             1000
+//                         10 * 60 * 1000
 //                 );
 
-//             user.otpPurpose =
-//                 purpose;
+//             user.otpPurpose = purpose;
 
 //             user.otpAttempts = 0;
 
 //             await user.save();
 
+//             // ------------------------------------------------
+//             // Send OTP
+//             // ------------------------------------------------
+
 //             try {
 //                 await sendOtpEmail({
-//                     email:
-//                         normalizedEmail,
+//                     email: normalizedEmail,
 //                     otp,
 //                     purpose,
 //                 });
 
-//             } catch (
-//                 emailError
-//             ) {
+//             } catch (emailError) {
 //                 console.error(
 //                     "RESEND OTP EMAIL ERROR:",
 //                     emailError
@@ -1096,7 +965,7 @@
 //             return res.status(200).json({
 //                 success: true,
 //                 message:
-//                     "New OTP sent successfully",
+//                     "A new OTP has been sent to your email.",
 //                 email:
 //                     maskEmail(
 //                         normalizedEmail
@@ -1128,12 +997,13 @@
 //     loginLimiter,
 
 //     [
-//         body("identifier")
+//         body("email")
 //             .trim()
-//             .notEmpty()
+//             .isEmail()
 //             .withMessage(
-//                 "Email or phone is required"
-//             ),
+//                 "Please enter a valid email"
+//             )
+//             .normalizeEmail(),
 
 //         body("password")
 //             .notEmpty()
@@ -1155,41 +1025,42 @@
 //             }
 
 //             const {
-//                 identifier,
+//                 email,
 //                 password,
 //             } = req.body;
 
-//             const value =
-//                 identifier.trim();
+//             const normalizedEmail =
+//                 email.toLowerCase().trim();
 
-//             let user;
-
-//             if (isEmail(value)) {
-//                 user =
-//                     await User.findOne({
-//                         email:
-//                             value.toLowerCase(),
-//                     });
-//             } else {
-//                 const normalizedPhone =
-//                     normalizePhone(
-//                         value
-//                     );
-
-//                 user =
-//                     await User.findOne({
-//                         phone:
-//                             normalizedPhone,
-//                     });
-//             }
+//             const user =
+//                 await User.findOne({
+//                     email: normalizedEmail,
+//                 });
 
 //             if (!user) {
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "Invalid email/phone or password",
+//                         "Invalid email or password",
 //                 });
 //             }
+
+//             // ------------------------------------------------
+//             // Email verification check
+//             // ------------------------------------------------
+
+//             if (!user.emailVerified) {
+//                 return res.status(403).json({
+//                     success: false,
+//                     requiresVerification: true,
+//                     error:
+//                         "Please verify your email before login.",
+//                 });
+//             }
+
+//             // ------------------------------------------------
+//             // Password check
+//             // ------------------------------------------------
 
 //             const passwordMatch =
 //                 await bcrypt.compare(
@@ -1201,27 +1072,22 @@
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "Invalid email/phone or password",
+//                         "Invalid email or password",
 //                 });
 //             }
 
-//             if (!user.emailVerified) {
-//                 return res.status(403).json({
-//                     success: false,
-//                     requiresOtp: true,
-//                     error:
-//                         "Please verify your email before login.",
-//                     email:
-//                         maskEmail(
-//                             user.email
-//                         ),
-//                 });
-//             }
+//             // ------------------------------------------------
+//             // Create token
+//             // ------------------------------------------------
 
 //             const token =
 //                 createToken(
 //                     user._id
 //                 );
+
+//             // ------------------------------------------------
+//             // Activity
+//             // ------------------------------------------------
 
 //             try {
 //                 await Activity.create({
@@ -1234,7 +1100,7 @@
 //                 activityError
 //             ) {
 //                 console.error(
-//                     "ACTIVITY ERROR:",
+//                     "LOGIN ACTIVITY ERROR:",
 //                     activityError
 //                 );
 //             }
@@ -1242,6 +1108,7 @@
 //             return res.status(200).json({
 //                 success: true,
 //                 token,
+
 //                 user: {
 //                     id: user._id,
 //                     name: user.name,
@@ -1275,12 +1142,13 @@
 //     otpSendLimiter,
 
 //     [
-//         body("identifier")
+//         body("email")
 //             .trim()
-//             .notEmpty()
+//             .isEmail()
 //             .withMessage(
-//                 "Email or phone is required"
-//             ),
+//                 "Please enter a valid email"
+//             )
+//             .normalizeEmail(),
 //     ],
 
 //     async (req, res) => {
@@ -1296,45 +1164,32 @@
 //             }
 
 //             const {
-//                 identifier,
+//                 email,
 //             } = req.body;
 
-//             const value =
-//                 identifier.trim();
+//             const normalizedEmail =
+//                 email.toLowerCase().trim();
 
-//             let user;
+//             const user =
+//                 await User.findOne({
+//                     email: normalizedEmail,
+//                 });
 
-//             if (isEmail(value)) {
-//                 user =
-//                     await User.findOne({
-//                         email:
-//                             value.toLowerCase(),
-//                     });
-//             } else {
-//                 user =
-//                     await User.findOne({
-//                         phone:
-//                             normalizePhone(
-//                                 value
-//                             ),
-//                     });
-//             }
+//             // ------------------------------------------------
+//             // Don't reveal whether email exists
+//             // ------------------------------------------------
 
 //             if (!user) {
-//                 return res.status(404).json({
-//                     success: false,
-//                     error:
-//                         "No account found with these details.",
+//                 return res.status(200).json({
+//                     success: true,
+//                     message:
+//                         "If an account exists with this email, an OTP has been sent.",
 //                 });
 //             }
 
-//             if (!user.emailVerified) {
-//                 return res.status(403).json({
-//                     success: false,
-//                     error:
-//                         "Please verify your email before resetting your password.",
-//                 });
-//             }
+//             // ------------------------------------------------
+//             // Generate OTP
+//             // ------------------------------------------------
 
 //             const otp =
 //                 generateOtp();
@@ -1345,9 +1200,7 @@
 //             user.otpExpires =
 //                 new Date(
 //                     Date.now() +
-//                         10 *
-//                             60 *
-//                             1000
+//                         10 * 60 * 1000
 //                 );
 
 //             user.otpPurpose =
@@ -1357,17 +1210,20 @@
 
 //             await user.save();
 
+//             // ------------------------------------------------
+//             // Send reset OTP
+//             // ------------------------------------------------
+
 //             try {
 //                 await sendOtpEmail({
-//                     email: user.email,
+//                     email:
+//                         normalizedEmail,
 //                     otp,
 //                     purpose:
 //                         "forgot-password",
 //                 });
 
-//             } catch (
-//                 emailError
-//             ) {
+//             } catch (emailError) {
 //                 console.error(
 //                     "FORGOT PASSWORD EMAIL ERROR:",
 //                     emailError
@@ -1387,7 +1243,7 @@
 //                     "Password reset OTP sent to your email.",
 //                 email:
 //                     maskEmail(
-//                         user.email
+//                         normalizedEmail
 //                     ),
 //             });
 
@@ -1408,13 +1264,21 @@
 
 // // ============================================================
 // // RESET PASSWORD
-// // POST /api/auth/ResetPassword
+// // POST /api/auth/resetPassword
 // // ============================================================
 
 // router.post(
-//     "/ResetPassword",
+//     "/resetPassword",
 
 //     [
+//         body("email")
+//             .trim()
+//             .isEmail()
+//             .withMessage(
+//                 "Please enter a valid email"
+//             )
+//             .normalizeEmail(),
+
 //         body("resetToken")
 //             .trim()
 //             .notEmpty()
@@ -1425,7 +1289,13 @@
 //         body("newPassword")
 //             .isLength({ min: 6 })
 //             .withMessage(
-//                 "New password must be at least 6 characters"
+//                 "Password must be at least 6 characters"
+//             ),
+
+//         body("confirmPassword")
+//             .notEmpty()
+//             .withMessage(
+//                 "Please confirm your password"
 //             ),
 //     ],
 
@@ -1442,9 +1312,29 @@
 //             }
 
 //             const {
+//                 email,
 //                 resetToken,
 //                 newPassword,
+//                 confirmPassword,
 //             } = req.body;
+
+//             // ------------------------------------------------
+//             // Password confirmation
+//             // ------------------------------------------------
+
+//             if (
+//                 newPassword !==
+//                 confirmPassword
+//             ) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     error:
+//                         "Passwords do not match",
+//                 });
+//             }
+
+//             const normalizedEmail =
+//                 email.toLowerCase().trim();
 
 //             const hashedResetToken =
 //                 crypto
@@ -1458,13 +1348,13 @@
 
 //             const user =
 //                 await User.findOne({
+//                     email:
+//                         normalizedEmail,
 //                     passwordResetToken:
 //                         hashedResetToken,
-
-//                     passwordResetExpires:
-//                         {
-//                             $gt: new Date(),
-//                         },
+//                     passwordResetExpires: {
+//                         $gt: new Date(),
+//                     },
 //                 });
 
 //             if (!user) {
@@ -1475,17 +1365,22 @@
 //                 });
 //             }
 
+//             // ------------------------------------------------
+//             // Hash new password
+//             // ------------------------------------------------
+
 //             const salt =
 //                 await bcrypt.genSalt(10);
 
-//             const hashedPassword =
+//             user.password =
 //                 await bcrypt.hash(
 //                     newPassword,
 //                     salt
 //                 );
 
-//             user.password =
-//                 hashedPassword;
+//             // ------------------------------------------------
+//             // Clear reset token
+//             // ------------------------------------------------
 
 //             user.passwordResetToken =
 //                 undefined;
@@ -1494,6 +1389,10 @@
 //                 undefined;
 
 //             await user.save();
+
+//             // ------------------------------------------------
+//             // Activity
+//             // ------------------------------------------------
 
 //             try {
 //                 await Activity.create({
@@ -1507,7 +1406,7 @@
 //                 activityError
 //             ) {
 //                 console.error(
-//                     "ACTIVITY ERROR:",
+//                     "PASSWORD RESET ACTIVITY ERROR:",
 //                     activityError
 //                 );
 //             }
@@ -1532,24 +1431,25 @@
 //         }
 //     }
 // );
-
 // // ============================================================
 // // GET USER
-// // POST /api/auth/getUser
-// // Login required
+// // GET /api/auth/getuser
 // // ============================================================
 
 // router.post(
-//     "/getUser",
+//     "/getuser",
 //     fetchuser,
 
 //     async (req, res) => {
 //         try {
+//             const userId =
+//                 req.user.id;
+
 //             const user =
 //                 await User.findById(
-//                     req.user.id
+//                     userId
 //                 ).select(
-//                     "-password -otpHash -otpExpires -otpPurpose -otpAttempts -passwordResetToken -passwordResetExpires"
+//                     "-password -otpHash -passwordResetToken"
 //                 );
 
 //             if (!user) {
@@ -1581,240 +1481,11 @@
 // );
 
 // // ============================================================
-// // UPDATE PROFILE
-// // PUT /api/auth/updateProfile
-// // Login required
-// // ============================================================
-
-// router.put(
-//     "/updateProfile",
-//     fetchuser,
-
-//     [
-//         body("name")
-//             .optional()
-//             .trim()
-//             .isLength({ min: 2 })
-//             .withMessage(
-//                 "Name must be at least 2 characters"
-//             ),
-
-//         body("email")
-//             .optional()
-//             .trim()
-//             .isEmail()
-//             .withMessage(
-//                 "Invalid email"
-//             )
-//             .normalizeEmail(),
-
-//         body("phone")
-//             .optional()
-//             .trim(),
-//     ],
-
-//     async (req, res) => {
-//         try {
-//             const errors =
-//                 validationResult(req);
-
-//             if (!errors.isEmpty()) {
-//                 return res.status(400).json({
-//                     success: false,
-//                     errors: errors.array(),
-//                 });
-//             }
-
-//             const user =
-//                 await User.findById(
-//                     req.user.id
-//                 );
-
-//             if (!user) {
-//                 return res.status(404).json({
-//                     success: false,
-//                     error:
-//                         "User not found",
-//                 });
-//             }
-
-//             const {
-//                 name,
-//                 email,
-//                 phone,
-//             } = req.body;
-
-//             // ------------------------------------------------
-//             // Update name
-//             // ------------------------------------------------
-
-//             if (name !== undefined) {
-//                 user.name =
-//                     name.trim();
-//             }
-
-//             // ------------------------------------------------
-//             // Update email
-//             // ------------------------------------------------
-
-//             if (email !== undefined) {
-//                 const normalizedEmail =
-//                     email
-//                         .toLowerCase()
-//                         .trim();
-
-//                 if (
-//                     !isEmail(
-//                         normalizedEmail
-//                     )
-//                 ) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         error:
-//                             "Invalid email",
-//                     });
-//                 }
-
-//                 const existingEmail =
-//                     await User.findOne({
-//                         email:
-//                             normalizedEmail,
-//                         _id: {
-//                             $ne:
-//                                 user._id,
-//                         },
-//                     });
-
-//                 if (existingEmail) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         error:
-//                             "Email is already in use",
-//                     });
-//                 }
-
-//                 user.email =
-//                     normalizedEmail;
-//             }
-
-//             // ------------------------------------------------
-//             // Update phone
-//             // ------------------------------------------------
-
-//             if (phone !== undefined) {
-//                 const normalizedPhone =
-//                     normalizePhone(
-//                         phone
-//                     );
-
-//                 if (
-//                     !/^\+91[6-9]\d{9}$/.test(
-//                         normalizedPhone
-//                     )
-//                 ) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         error:
-//                             "Please enter a valid Indian phone number",
-//                     });
-//                 }
-
-//                 const existingPhone =
-//                     await User.findOne({
-//                         phone:
-//                             normalizedPhone,
-//                         _id: {
-//                             $ne:
-//                                 user._id,
-//                         },
-//                     });
-
-//                 if (existingPhone) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         error:
-//                             "Phone number is already in use",
-//                     });
-//                 }
-
-//                 user.phone =
-//                     normalizedPhone;
-//             }
-
-//             await user.save();
-
-//             try {
-//                 await Activity.create({
-//                     user: user._id,
-//                     action:
-//                         "profile_updated",
-//                     message:
-//                         "Profile updated successfully",
-//                 });
-//             } catch (
-//                 activityError
-//             ) {
-//                 console.error(
-//                     "ACTIVITY ERROR:",
-//                     activityError
-//                 );
-//             }
-
-//             return res.status(200).json({
-//                 success: true,
-//                 message:
-//                     "Profile updated successfully",
-//                 user: {
-//                     id: user._id,
-//                     name: user.name,
-//                     email: user.email,
-//                     phone: user.phone,
-//                 },
-//             });
-
-//         } catch (error) {
-//             console.error(
-//                 "UPDATE PROFILE ERROR:",
-//                 error
-//             );
-
-//             // Duplicate protection
-//             if (error.code === 11000) {
-//                 const duplicateField =
-//                     Object.keys(
-//                         error.keyPattern ||
-//                         {}
-//                     )[0];
-
-//                 return res.status(400).json({
-//                     success: false,
-//                     error:
-//                         duplicateField ===
-//                         "phone"
-//                             ? "Phone number is already in use"
-//                             : duplicateField ===
-//                               "email"
-//                             ? "Email is already in use"
-//                             : "This information is already in use",
-//                 });
-//             }
-
-//             return res.status(500).json({
-//                 success: false,
-//                 error:
-//                     "Internal server error",
-//             });
-//         }
-//     }
-// );
-
-// // ============================================================
 // // CHANGE PASSWORD
-// // PUT /api/auth/changePassword
-// // Login required
+// // POST /api/auth/changePassword
 // // ============================================================
 
-// router.put(
+// router.post(
 //     "/changePassword",
 //     fetchuser,
 
@@ -1863,7 +1534,7 @@
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
-//                         "New passwords do not match",
+//                         "Passwords do not match",
 //                 });
 //             }
 
@@ -1880,13 +1551,13 @@
 //                 });
 //             }
 
-//             const currentPasswordMatch =
+//             const passwordMatch =
 //                 await bcrypt.compare(
 //                     currentPassword,
 //                     user.password
 //                 );
 
-//             if (!currentPasswordMatch) {
+//             if (!passwordMatch) {
 //                 return res.status(400).json({
 //                     success: false,
 //                     error:
@@ -1894,31 +1565,14 @@
 //                 });
 //             }
 
-//             const samePassword =
-//                 await bcrypt.compare(
-//                     newPassword,
-//                     user.password
-//                 );
-
-//             if (samePassword) {
-//                 return res.status(400).json({
-//                     success: false,
-//                     error:
-//                         "New password must be different from the current password",
-//                 });
-//             }
-
 //             const salt =
 //                 await bcrypt.genSalt(10);
 
-//             const hashedPassword =
+//             user.password =
 //                 await bcrypt.hash(
 //                     newPassword,
 //                     salt
 //                 );
-
-//             user.password =
-//                 hashedPassword;
 
 //             await user.save();
 
@@ -1961,10 +1615,206 @@
 // );
 
 // // ============================================================
+// // UPDATE PROFILE
+// // PUT /api/auth/updateProfile
+// // ============================================================
+
+// router.put(
+//     "/updateProfile",
+//     fetchuser,
+
+//     [
+//         body("name")
+//             .optional()
+//             .trim()
+//             .isLength({ min: 2 })
+//             .withMessage(
+//                 "Name must be at least 2 characters"
+//             ),
+//     ],
+
+//     async (req, res) => {
+//         try {
+//             const errors =
+//                 validationResult(req);
+
+//             if (!errors.isEmpty()) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     errors: errors.array(),
+//                 });
+//             }
+
+//             const user =
+//                 await User.findById(
+//                     req.user.id
+//                 );
+
+//             if (!user) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     error:
+//                         "User not found",
+//                 });
+//             }
+
+//             if (
+//                 req.body.name !==
+//                 undefined
+//             ) {
+//                 user.name =
+//                     req.body.name.trim();
+//             }
+
+//             await user.save();
+
+//             return res.status(200).json({
+//                 success: true,
+//                 message:
+//                     "Profile updated successfully",
+//                 user: {
+//                     id: user._id,
+//                     name: user.name,
+//                     email: user.email,
+//                     phone: user.phone,
+//                 },
+//             });
+
+//         } catch (error) {
+//             console.error(
+//                 "UPDATE PROFILE ERROR:",
+//                 error
+//             );
+
+//             return res.status(500).json({
+//                 success: false,
+//                 error:
+//                     "Internal server error",
+//             });
+//         }
+//     }
+// );
+
+// // ============================================================
+// // DELETE ACCOUNT
+// // DELETE /api/auth/deleteAccount
+// // ============================================================
+
+// router.delete(
+//     "/deleteAccount",
+//     fetchuser,
+
+//     async (req, res) => {
+//         try {
+//             const user =
+//                 await User.findById(
+//                     req.user.id
+//                 );
+
+//             if (!user) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     error:
+//                         "User not found",
+//                 });
+//             }
+
+//             // Delete user's activity
+//             try {
+//                 await Activity.deleteMany({
+//                     user: user._id,
+//                 });
+//             } catch (
+//                 activityError
+//             ) {
+//                 console.error(
+//                     "DELETE ACTIVITY ERROR:",
+//                     activityError
+//                 );
+//             }
+
+//             await User.findByIdAndDelete(
+//                 user._id
+//             );
+
+//             return res.status(200).json({
+//                 success: true,
+//                 message:
+//                     "Account deleted successfully",
+//             });
+
+//         } catch (error) {
+//             console.error(
+//                 "DELETE ACCOUNT ERROR:",
+//                 error
+//             );
+
+//             return res.status(500).json({
+//                 success: false,
+//                 error:
+//                     "Internal server error",
+//             });
+//         }
+//     }
+// );
+
+// // ============================================================
+// // LOGOUT
+// // POST /api/auth/logout
+// // ============================================================
+
+// router.post(
+//     "/logout",
+//     fetchuser,
+
+//     async (req, res) => {
+//         try {
+//             try {
+//                 await Activity.create({
+//                     user: req.user.id,
+//                     action:
+//                         "logout",
+//                     message:
+//                         "User logged out",
+//                 });
+//             } catch (
+//                 activityError
+//             ) {
+//                 console.error(
+//                     "LOGOUT ACTIVITY ERROR:",
+//                     activityError
+//                 );
+//             }
+
+//             return res.status(200).json({
+//                 success: true,
+//                 message:
+//                     "Logged out successfully",
+//             });
+
+//         } catch (error) {
+//             console.error(
+//                 "LOGOUT ERROR:",
+//                 error
+//             );
+
+//             return res.status(500).json({
+//                 success: false,
+//                 error:
+//                     "Internal server error",
+//             });
+//         }
+//     }
+// );
+
+// // ============================================================
 // // EXPORT ROUTER
 // // ============================================================
 
 // module.exports = router;
+
+
+
 
 
 const express = require("express");
@@ -1973,9 +1823,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
-//const nodemailer = require("nodemailer");
-
 const dns = require("dns");
+
 dns.setDefaultResultOrder("ipv4first");
 
 const User = require("../models/User");
@@ -1992,22 +1841,6 @@ const JWT_SECRET =
     process.env.JWT_SECRET || "inotebook-secret-key";
 
 // ============================================================
-// GMAIL CONFIGURATION
-// ============================================================
-
-// //const transporter = nodemailer.createTransport({
-//     host: "smtp.gmail.com",
-//     port: 587,
-//     secure: false,
-//     requireTLS: true,
-//     family: 4,
-//     auth: {
-//         user: process.env.GMAIL_USER,
-//         pass: process.env.GMAIL_APP_PASSWORD,
-//     },
-// });
-
-// ============================================================
 // RATE LIMITERS
 // ============================================================
 
@@ -2016,8 +1849,7 @@ const loginLimiter = rateLimit({
     max: 15,
     message: {
         success: false,
-        error:
-            "Too many login attempts. Please try again later.",
+        error: "Too many login attempts. Please try again later.",
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -2028,8 +1860,7 @@ const otpSendLimiter = rateLimit({
     max: 10,
     message: {
         success: false,
-        error:
-            "Too many OTP requests. Please try again later.",
+        error: "Too many OTP requests. Please try again later.",
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -2148,17 +1979,25 @@ const clearOtp = (user) => {
 };
 
 // ============================================================
-// GMAIL EMAIL FUNCTION
+// BREVO EMAIL FUNCTION
 // ============================================================
 
-const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
+const sendOtpEmail = async ({
+    email,
+    otp,
+    purpose = "signup",
+}) => {
     try {
         if (!process.env.BREVO_API_KEY) {
-            throw new Error("Brevo API configuration is missing");
+            throw new Error(
+                "Brevo API configuration is missing"
+            );
         }
 
         if (!process.env.GMAIL_USER) {
-            throw new Error("Sender email configuration is missing");
+            throw new Error(
+                "Sender email configuration is missing"
+            );
         }
 
         let subject = "iNotebook - Verify your email";
@@ -2185,7 +2024,10 @@ const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
 
                 <p>This OTP is valid for <strong>10 minutes</strong>.</p>
 
-                <p>If you did not request this OTP, please ignore this email.</p>
+                <p>
+                    If you did not request this OTP,
+                    please ignore this email.
+                </p>
 
                 <hr>
 
@@ -2195,43 +2037,61 @@ const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
             </div>
         `;
 
-        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-            method: "POST",
-            headers: {
-                "accept": "application/json",
-                "api-key": process.env.BREVO_API_KEY,
-                "content-type": "application/json",
-            },
-            body: JSON.stringify({
-                sender: {
-                    name: "iNotebook.",
-                    email: process.env.GMAIL_USER,
+        const response = await fetch(
+            "https://api.brevo.com/v3/smtp/email",
+            {
+                method: "POST",
+                headers: {
+                    accept: "application/json",
+                    "api-key": process.env.BREVO_API_KEY,
+                    "content-type": "application/json",
                 },
-                to: [
-                    {
-                        email: email,
+                body: JSON.stringify({
+                    sender: {
+                        name: "iNotebook.",
+                        email: process.env.GMAIL_USER,
                     },
-                ],
-                subject,
-                htmlContent,
-            }),
-        });
+                    to: [
+                        {
+                            email: email,
+                        },
+                    ],
+                    subject,
+                    htmlContent,
+                }),
+            }
+        );
 
         const data = await response.json();
 
         if (!response.ok) {
-            console.error("BREVO EMAIL ERROR:", data);
-            throw new Error(data.message || "Brevo email sending failed");
+            console.error(
+                "BREVO EMAIL ERROR:",
+                data
+            );
+
+            throw new Error(
+                data.message ||
+                    "Brevo email sending failed"
+            );
         }
 
-        console.log("BREVO EMAIL SENT SUCCESSFULLY:", data.messageId);
+        console.log(
+            "BREVO EMAIL SENT SUCCESSFULLY:",
+            data.messageId
+        );
 
         return data;
     } catch (error) {
-        console.error("BREVO OTP EMAIL ERROR:", error);
+        console.error(
+            "BREVO OTP EMAIL ERROR:",
+            error
+        );
+
         throw error;
     }
 };
+
 // ============================================================
 // CREATE USER
 // POST /api/auth/createUser
@@ -2239,7 +2099,6 @@ const sendOtpEmail = async ({ email, otp, purpose = "signup" }) => {
 
 router.post(
     "/createUser",
-
     [
         body("name")
             .trim()
@@ -2297,10 +2156,7 @@ router.post(
                 confirmPassword,
             } = req.body;
 
-            // ------------------------------------------------
             // Password confirmation
-            // ------------------------------------------------
-
             if (password !== confirmPassword) {
                 return res.status(400).json({
                     success: false,
@@ -2308,10 +2164,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Normalize email and phone
-            // ------------------------------------------------
-
             const normalizedEmail =
                 email.toLowerCase().trim();
 
@@ -2337,10 +2190,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check existing email
-            // ------------------------------------------------
-
             let user = await User.findOne({
                 email: normalizedEmail,
             });
@@ -2354,15 +2204,11 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check existing phone
-            // ------------------------------------------------
-
             const phoneUser = await User.findOne({
                 phone: normalizedPhone,
             });
 
-            // Phone belongs to another user
             if (
                 phoneUser &&
                 (!user ||
@@ -2376,26 +2222,17 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Generate OTP
-            // ------------------------------------------------
-
             const otp = generateOtp();
 
             const otpHash = hashOtp(otp);
 
-            const otpExpires =
-                new Date(
-                    Date.now() +
-                        10 * 60 * 1000
-                );
+            const otpExpires = new Date(
+                Date.now() + 10 * 60 * 1000
+            );
 
-            // ------------------------------------------------
             // Hash password
-            // ------------------------------------------------
-
-            const salt =
-                await bcrypt.genSalt(10);
+            const salt = await bcrypt.genSalt(10);
 
             const hashedPassword =
                 await bcrypt.hash(
@@ -2403,10 +2240,7 @@ router.post(
                     salt
                 );
 
-            // ------------------------------------------------
             // Create or update unverified user
-            // ------------------------------------------------
-
             if (!user) {
                 user = new User({
                     name,
@@ -2430,21 +2264,33 @@ router.post(
                 user.otpAttempts = 0;
             }
 
-            // ------------------------------------------------
             // Save user
-            // ------------------------------------------------
-
             try {
                 await user.save();
 
+                // ====================================================
+                // OTP SAVED DEBUG
+                // ====================================================
+                console.log(
+                    "OTP SAVED DEBUG:",
+                    {
+                        email: user.email,
+                        userId:
+                            user._id.toString(),
+                        otpHashExists:
+                            !!user.otpHash,
+                        otpExpires:
+                            user.otpExpires,
+                        otpPurpose:
+                            user.otpPurpose,
+                    }
+                );
             } catch (saveError) {
-
-                // MongoDB duplicate key
                 if (saveError.code === 11000) {
                     const duplicateField =
                         Object.keys(
                             saveError.keyPattern ||
-                            {}
+                                {}
                         )[0];
 
                     if (
@@ -2479,17 +2325,13 @@ router.post(
                 throw saveError;
             }
 
-            // ------------------------------------------------
-            // Send OTP using Gmail
-            // ------------------------------------------------
-
+            // Send OTP using Brevo
             try {
                 await sendOtpEmail({
                     email: normalizedEmail,
                     otp,
                     purpose: "signup",
                 });
-
             } catch (emailError) {
                 console.error(
                     "SIGNUP OTP EMAIL ERROR:",
@@ -2502,10 +2344,6 @@ router.post(
                         "Unable to send OTP email. Please try again later.",
                 });
             }
-
-            // ------------------------------------------------
-            // Success
-            // ------------------------------------------------
 
             return res.status(201).json({
                 success: true,
@@ -2521,19 +2359,17 @@ router.post(
                         normalizedPhone
                     ),
             });
-
         } catch (error) {
             console.error(
                 "CREATE USER ERROR:",
                 error
             );
 
-            // Extra duplicate-key protection
             if (error.code === 11000) {
                 const duplicateField =
                     Object.keys(
                         error.keyPattern ||
-                        {}
+                            {}
                     )[0];
 
                 return res.status(400).json({
@@ -2566,7 +2402,6 @@ router.post(
 router.post(
     "/verifyOtp",
     otpVerifyLimiter,
-
     [
         body("email")
             .trim()
@@ -2623,6 +2458,29 @@ router.post(
                     email: normalizedEmail,
                 });
 
+            // ====================================================
+            // OTP VERIFY DEBUG
+            // ====================================================
+            console.log(
+                "OTP VERIFY DEBUG:",
+                {
+                    email: normalizedEmail,
+                    userFound: !!user,
+                    userId: user
+                        ? user._id.toString()
+                        : null,
+                    otpHashExists: user
+                        ? !!user.otpHash
+                        : false,
+                    otpExpires: user
+                        ? user.otpExpires
+                        : null,
+                    otpPurpose: user
+                        ? user.otpPurpose
+                        : null,
+                }
+            );
+
             if (!user) {
                 return res.status(404).json({
                     success: false,
@@ -2630,10 +2488,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check OTP exists
-            // ------------------------------------------------
-
             if (
                 !user.otpHash ||
                 !user.otpExpires
@@ -2645,10 +2500,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check OTP purpose
-            // ------------------------------------------------
-
             if (
                 user.otpPurpose &&
                 user.otpPurpose !== purpose
@@ -2660,15 +2512,13 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check OTP expiry
-            // ------------------------------------------------
-
             if (
                 new Date() >
                 new Date(user.otpExpires)
             ) {
                 clearOtp(user);
+
                 await user.save();
 
                 return res.status(400).json({
@@ -2678,14 +2528,12 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Check attempts
-            // ------------------------------------------------
-
             if (
                 user.otpAttempts >= 5
             ) {
                 clearOtp(user);
+
                 await user.save();
 
                 return res.status(429).json({
@@ -2695,10 +2543,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Compare OTP
-            // ------------------------------------------------
-
             const hashedInputOtp =
                 hashOtp(otp);
 
@@ -2713,8 +2558,7 @@ router.post(
 
                 return res.status(400).json({
                     success: false,
-                    error:
-                        "Invalid OTP.",
+                    error: "Invalid OTP.",
                     attemptsRemaining:
                         Math.max(
                             0,
@@ -2724,10 +2568,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // OTP verified
-            // ------------------------------------------------
-
+            // OTP verified - Signup
             if (purpose === "signup") {
                 user.emailVerified = true;
 
@@ -2742,16 +2583,16 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // Forgot password OTP
-            // ------------------------------------------------
-
+            // OTP verified - Forgot password
             if (
                 purpose ===
                 "forgot-password"
             ) {
-                user.passwordResetToken =
+                const resetToken =
                     createPasswordResetToken();
+
+                user.passwordResetToken =
+                    hashOtp(resetToken);
 
                 user.passwordResetExpires =
                     new Date(
@@ -2767,8 +2608,7 @@ router.post(
                     success: true,
                     message:
                         "OTP verified successfully.",
-                    resetToken:
-                        user.passwordResetToken,
+                    resetToken,
                 });
             }
 
@@ -2777,7 +2617,6 @@ router.post(
                 error:
                     "Invalid OTP purpose.",
             });
-
         } catch (error) {
             console.error(
                 "VERIFY OTP ERROR:",
@@ -2792,6 +2631,7 @@ router.post(
         }
     }
 );
+
 // ============================================================
 // RESEND OTP
 // POST /api/auth/resendOtp
@@ -2800,7 +2640,6 @@ router.post(
 router.post(
     "/resendOtp",
     otpSendLimiter,
-
     [
         body("email")
             .trim()
@@ -2854,10 +2693,6 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // Signup OTP
-            // ------------------------------------------------
-
             if (
                 purpose === "signup" &&
                 user.emailVerified
@@ -2869,10 +2704,7 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
             // Generate new OTP
-            // ------------------------------------------------
-
             const otp = generateOtp();
 
             user.otpHash =
@@ -2890,17 +2722,28 @@ router.post(
 
             await user.save();
 
-            // ------------------------------------------------
-            // Send OTP
-            // ------------------------------------------------
+            console.log(
+                "RESEND OTP SAVED DEBUG:",
+                {
+                    email: user.email,
+                    userId:
+                        user._id.toString(),
+                    otpHashExists:
+                        !!user.otpHash,
+                    otpExpires:
+                        user.otpExpires,
+                    otpPurpose:
+                        user.otpPurpose,
+                }
+            );
 
+            // Send OTP
             try {
                 await sendOtpEmail({
                     email: normalizedEmail,
                     otp,
                     purpose,
                 });
-
             } catch (emailError) {
                 console.error(
                     "RESEND OTP EMAIL ERROR:",
@@ -2923,7 +2766,6 @@ router.post(
                         normalizedEmail
                     ),
             });
-
         } catch (error) {
             console.error(
                 "RESEND OTP ERROR:",
@@ -2947,7 +2789,6 @@ router.post(
 router.post(
     "/login",
     loginLimiter,
-
     [
         body("email")
             .trim()
@@ -2997,10 +2838,6 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // Email verification check
-            // ------------------------------------------------
-
             if (!user.emailVerified) {
                 return res.status(403).json({
                     success: false,
@@ -3009,10 +2846,6 @@ router.post(
                         "Please verify your email before login.",
                 });
             }
-
-            // ------------------------------------------------
-            // Password check
-            // ------------------------------------------------
 
             const passwordMatch =
                 await bcrypt.compare(
@@ -3028,18 +2861,8 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // Create token
-            // ------------------------------------------------
-
             const token =
-                createToken(
-                    user._id
-                );
-
-            // ------------------------------------------------
-            // Activity
-            // ------------------------------------------------
+                createToken(user._id);
 
             try {
                 await Activity.create({
@@ -3060,7 +2883,6 @@ router.post(
             return res.status(200).json({
                 success: true,
                 token,
-
                 user: {
                     id: user._id,
                     name: user.name,
@@ -3068,7 +2890,6 @@ router.post(
                     phone: user.phone,
                 },
             });
-
         } catch (error) {
             console.error(
                 "LOGIN ERROR:",
@@ -3092,7 +2913,6 @@ router.post(
 router.post(
     "/forgotPassword",
     otpSendLimiter,
-
     [
         body("email")
             .trim()
@@ -3115,9 +2935,7 @@ router.post(
                 });
             }
 
-            const {
-                email,
-            } = req.body;
+            const { email } = req.body;
 
             const normalizedEmail =
                 email.toLowerCase().trim();
@@ -3127,10 +2945,6 @@ router.post(
                     email: normalizedEmail,
                 });
 
-            // ------------------------------------------------
-            // Don't reveal whether email exists
-            // ------------------------------------------------
-
             if (!user) {
                 return res.status(200).json({
                     success: true,
@@ -3138,10 +2952,6 @@ router.post(
                         "If an account exists with this email, an OTP has been sent.",
                 });
             }
-
-            // ------------------------------------------------
-            // Generate OTP
-            // ------------------------------------------------
 
             const otp =
                 generateOtp();
@@ -3162,9 +2972,20 @@ router.post(
 
             await user.save();
 
-            // ------------------------------------------------
-            // Send reset OTP
-            // ------------------------------------------------
+            console.log(
+                "FORGOT PASSWORD OTP SAVED DEBUG:",
+                {
+                    email: user.email,
+                    userId:
+                        user._id.toString(),
+                    otpHashExists:
+                        !!user.otpHash,
+                    otpExpires:
+                        user.otpExpires,
+                    otpPurpose:
+                        user.otpPurpose,
+                }
+            );
 
             try {
                 await sendOtpEmail({
@@ -3174,7 +2995,6 @@ router.post(
                     purpose:
                         "forgot-password",
                 });
-
             } catch (emailError) {
                 console.error(
                     "FORGOT PASSWORD EMAIL ERROR:",
@@ -3198,7 +3018,6 @@ router.post(
                         normalizedEmail
                     ),
             });
-
         } catch (error) {
             console.error(
                 "FORGOT PASSWORD ERROR:",
@@ -3221,7 +3040,6 @@ router.post(
 
 router.post(
     "/resetPassword",
-
     [
         body("email")
             .trim()
@@ -3270,10 +3088,6 @@ router.post(
                 confirmPassword,
             } = req.body;
 
-            // ------------------------------------------------
-            // Password confirmation
-            // ------------------------------------------------
-
             if (
                 newPassword !==
                 confirmPassword
@@ -3289,21 +3103,16 @@ router.post(
                 email.toLowerCase().trim();
 
             const hashedResetToken =
-                crypto
-                    .createHash(
-                        "sha256"
-                    )
-                    .update(
-                        resetToken
-                    )
-                    .digest("hex");
+                hashOtp(resetToken);
 
             const user =
                 await User.findOne({
                     email:
                         normalizedEmail,
+
                     passwordResetToken:
                         hashedResetToken,
+
                     passwordResetExpires: {
                         $gt: new Date(),
                     },
@@ -3317,10 +3126,6 @@ router.post(
                 });
             }
 
-            // ------------------------------------------------
-            // Hash new password
-            // ------------------------------------------------
-
             const salt =
                 await bcrypt.genSalt(10);
 
@@ -3330,10 +3135,6 @@ router.post(
                     salt
                 );
 
-            // ------------------------------------------------
-            // Clear reset token
-            // ------------------------------------------------
-
             user.passwordResetToken =
                 undefined;
 
@@ -3341,10 +3142,6 @@ router.post(
                 undefined;
 
             await user.save();
-
-            // ------------------------------------------------
-            // Activity
-            // ------------------------------------------------
 
             try {
                 await Activity.create({
@@ -3368,7 +3165,6 @@ router.post(
                 message:
                     "Password reset successfully. You can now login.",
             });
-
         } catch (error) {
             console.error(
                 "RESET PASSWORD ERROR:",
@@ -3383,6 +3179,7 @@ router.post(
         }
     }
 );
+
 // ============================================================
 // GET USER
 // GET /api/auth/getuser
@@ -3391,7 +3188,6 @@ router.post(
 router.post(
     "/getuser",
     fetchuser,
-
     async (req, res) => {
         try {
             const userId =
@@ -3416,7 +3212,6 @@ router.post(
                 success: true,
                 user,
             });
-
         } catch (error) {
             console.error(
                 "GET USER ERROR:",
@@ -3440,7 +3235,6 @@ router.post(
 router.post(
     "/changePassword",
     fetchuser,
-
     [
         body("currentPassword")
             .notEmpty()
@@ -3550,7 +3344,6 @@ router.post(
                 message:
                     "Password changed successfully",
             });
-
         } catch (error) {
             console.error(
                 "CHANGE PASSWORD ERROR:",
@@ -3574,7 +3367,6 @@ router.post(
 router.put(
     "/updateProfile",
     fetchuser,
-
     [
         body("name")
             .optional()
@@ -3631,7 +3423,6 @@ router.put(
                     phone: user.phone,
                 },
             });
-
         } catch (error) {
             console.error(
                 "UPDATE PROFILE ERROR:",
@@ -3655,7 +3446,6 @@ router.put(
 router.delete(
     "/deleteAccount",
     fetchuser,
-
     async (req, res) => {
         try {
             const user =
@@ -3671,7 +3461,6 @@ router.delete(
                 });
             }
 
-            // Delete user's activity
             try {
                 await Activity.deleteMany({
                     user: user._id,
@@ -3694,7 +3483,6 @@ router.delete(
                 message:
                     "Account deleted successfully",
             });
-
         } catch (error) {
             console.error(
                 "DELETE ACCOUNT ERROR:",
@@ -3718,14 +3506,12 @@ router.delete(
 router.post(
     "/logout",
     fetchuser,
-
     async (req, res) => {
         try {
             try {
                 await Activity.create({
                     user: req.user.id,
-                    action:
-                        "logout",
+                    action: "logout",
                     message:
                         "User logged out",
                 });
@@ -3743,7 +3529,6 @@ router.post(
                 message:
                     "Logged out successfully",
             });
-
         } catch (error) {
             console.error(
                 "LOGOUT ERROR:",
