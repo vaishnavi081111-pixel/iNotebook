@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Link, useHistory } from "react-router-dom";
 
@@ -84,9 +83,9 @@ const Signup = ({ showAlert }) => {
       return;
     }
 
-    if (formData.password.length < 5) {
+    if (formData.password.length < 6) {
       showAlert(
-        "Password must be at least 5 characters.",
+        "Password must be at least 6 characters.",
         "danger"
       );
       return;
@@ -133,12 +132,16 @@ const Signup = ({ showAlert }) => {
         );
 
         /*
-         * Do NOT login immediately.
-         * First verify the OTP.
+         * IMPORTANT:
+         * Backend verifyOtp expects EMAIL.
+         *
+         * DO NOT use userId here.
          */
 
         history.push(
-          `/verify-otp?userId=${json.userId}&purpose=signup`
+          `/verify-otp?email=${encodeURIComponent(
+            email
+          )}&purpose=signup`
         );
       } else {
         showAlert(
@@ -163,19 +166,20 @@ const Signup = ({ showAlert }) => {
 
   return (
     <div className="auth-page">
+
       <div className="auth-background">
         <div className="auth-glow auth-glow-one"></div>
         <div className="auth-glow auth-glow-two"></div>
       </div>
 
       <div className="auth-container">
+
         <div className="auth-card signup-card">
 
-          {/* =========================
-              HEADER
-              ========================= */}
+          {/* HEADER */}
 
           <div className="auth-header">
+
             <div className="auth-icon">
               <i className="fa-solid fa-wand-magic-sparkles"></i>
             </div>
@@ -190,11 +194,10 @@ const Signup = ({ showAlert }) => {
               Start capturing ideas, managing notes and
               working smarter with iNotebook.
             </p>
+
           </div>
 
-          {/* =========================
-              SIGNUP FORM
-              ========================= */}
+          {/* SIGNUP FORM */}
 
           <form
             onSubmit={handleSubmit}
@@ -204,11 +207,13 @@ const Signup = ({ showAlert }) => {
             {/* NAME */}
 
             <div className="form-group">
+
               <label htmlFor="signup-name">
                 Full name
               </label>
 
               <div className="input-wrapper">
+
                 <i className="fa-regular fa-user"></i>
 
                 <input
@@ -221,17 +226,21 @@ const Signup = ({ showAlert }) => {
                   autoComplete="name"
                   required
                 />
+
               </div>
+
             </div>
 
             {/* EMAIL */}
 
             <div className="form-group">
+
               <label htmlFor="signup-email">
                 Email address
               </label>
 
               <div className="input-wrapper">
+
                 <i className="fa-regular fa-envelope"></i>
 
                 <input
@@ -244,21 +253,25 @@ const Signup = ({ showAlert }) => {
                   autoComplete="email"
                   required
                 />
+
               </div>
 
               <span className="form-hint">
                 OTP will be sent to this email.
               </span>
+
             </div>
 
             {/* PHONE */}
 
             <div className="form-group">
+
               <label htmlFor="signup-phone">
                 Phone number
               </label>
 
               <div className="input-wrapper">
+
                 <i className="fa-solid fa-phone"></i>
 
                 <input
@@ -272,21 +285,25 @@ const Signup = ({ showAlert }) => {
                   maxLength="13"
                   required
                 />
+
               </div>
 
               <span className="form-hint">
                 Enter your 10-digit Indian phone number.
               </span>
+
             </div>
 
             {/* PASSWORD */}
 
             <div className="form-group">
+
               <label htmlFor="signup-password">
                 Password
               </label>
 
               <div className="input-wrapper">
+
                 <i className="fa-solid fa-lock"></i>
 
                 <input
@@ -326,21 +343,25 @@ const Signup = ({ showAlert }) => {
                     }
                   ></i>
                 </button>
+
               </div>
 
               <span className="form-hint">
-                Use at least 5 characters.
+                Use at least 6 characters.
               </span>
+
             </div>
 
             {/* CONFIRM PASSWORD */}
 
             <div className="form-group">
+
               <label htmlFor="signup-confirm-password">
                 Confirm password
               </label>
 
               <div className="input-wrapper">
+
                 <i className="fa-solid fa-shield-halved"></i>
 
                 <input
@@ -380,7 +401,9 @@ const Signup = ({ showAlert }) => {
                     }
                   ></i>
                 </button>
+
               </div>
+
             </div>
 
             {/* SUBMIT */}
@@ -390,6 +413,7 @@ const Signup = ({ showAlert }) => {
               className="auth-submit-btn"
               disabled={loading}
             >
+
               {loading ? (
                 <>
                   <span className="auth-spinner"></span>
@@ -401,34 +425,39 @@ const Signup = ({ showAlert }) => {
                   <i className="fa-solid fa-arrow-right"></i>
                 </>
               )}
+
             </button>
+
           </form>
 
-          {/* =========================
-              DIVIDER
-              ========================= */}
+          {/* DIVIDER */}
 
           <div className="auth-divider">
-            <span>your ideas, organized</span>
+            <span>
+              your ideas, organized
+            </span>
           </div>
 
-          {/* =========================
-              FOOTER
-              ========================= */}
+          {/* FOOTER */}
 
           <div className="auth-footer">
+
             <p>
               Already have an account?
-              <Link to="/login"> Sign in</Link>
+              <Link to="/login">
+                {" "}
+                Sign in
+              </Link>
             </p>
+
           </div>
+
         </div>
 
-        {/* =========================
-            TRUST BADGES
-            ========================= */}
+        {/* TRUST BADGES */}
 
         <div className="auth-trust">
+
           <span>
             <i className="fa-solid fa-shield-halved"></i>
             Secure account
@@ -443,11 +472,13 @@ const Signup = ({ showAlert }) => {
             <i className="fa-solid fa-cloud"></i>
             Your notes, your space
           </span>
+
         </div>
+
       </div>
+
     </div>
   );
 };
 
 export default Signup;
-
