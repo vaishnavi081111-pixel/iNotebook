@@ -11,6 +11,35 @@ dns.setDefaultResultOrder("ipv4first");
 const User = require("../models/User");
 const Activity = require("../models/Activity");
 const fetchuser = require("../middleware/fetchuser");
+// const User = require("../models/User");
+// const Activity = require("../models/Activity");
+// const fetchuser = require("../middleware/fetchuser");
+
+console.log(
+    "ACTIVE USER SCHEMA FIELDS:",
+    Object.keys(User.schema.paths)
+);
+
+console.log(
+    "OTP HASH PATH:",
+    User.schema.path("otpHash")
+        ? "EXISTS"
+        : "MISSING"
+);
+
+console.log(
+    "OTP EXPIRES PATH:",
+    User.schema.path("otpExpires")
+        ? "EXISTS"
+        : "MISSING"
+);
+
+console.log(
+    "OTP PURPOSE PATH:",
+    User.schema.path("otpPurpose")
+        ? "EXISTS"
+        : "MISSING"
+);
 
 const router = express.Router();
 
