@@ -54,11 +54,11 @@ const Navbar = ({
 
       const json = await response.json();
 
-      if (response.ok) {
-        setUser(json);
-      } else {
-        setUser(null);
-      }
+if (response.ok) {
+  setUser(json.user);
+} else {
+  setUser(null);
+}
     } catch (error) {
       console.error("NAVBAR USER ERROR:", error);
       setUser(null);
