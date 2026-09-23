@@ -52,8 +52,8 @@ const Login = ({ showAlert }) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            identifier: identifier,
-            password: password,
+            email: identifier.trim().toLowerCase(),
+            password,
           }),
         }
       );
