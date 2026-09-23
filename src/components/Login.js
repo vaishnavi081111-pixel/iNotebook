@@ -63,10 +63,9 @@ const Login = ({ showAlert }) => {
       console.log("LOGIN RESPONSE:", json);
 
       if (response.ok) {
-        if (json.authToken) {
-          localStorage.setItem("token", json.authToken);
-        }
-
+      if (json.token) {
+  localStorage.setItem("token", json.token);
+}
         showAlert(
           "Login successful. Welcome back!",
           "success"
