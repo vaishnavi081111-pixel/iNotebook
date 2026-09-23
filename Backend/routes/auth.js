@@ -626,6 +626,78 @@ router.post(
                                 : null,
                     }
                 );
+                // ============================================================
+// DIRECT MONGODB UPDATE TEST
+// ============================================================
+
+console.log("DIRECT MONGODB UPDATE TEST: START");
+
+const directUpdateResult = await User.collection.updateOne(
+    {
+        _id: user._id,
+    },
+    {
+        $set: {
+            otpHash: otpHash,
+            otpExpires: otpExpires,
+            otpPurpose: "signup",
+            otpAttempts: 0,
+        },
+    }
+);
+
+console.log(
+    "DIRECT MONGODB UPDATE RESULT:",
+    {
+        matchedCount: directUpdateResult.matchedCount,
+        modifiedCount: directUpdateResult.modifiedCount,
+    }
+);
+
+// Read directly again
+const rawDbUserAfterDirectUpdate =
+    await User.collection.findOne({
+        _id: user._id,
+    });
+
+console.log(
+    "RAW DB AFTER DIRECT UPDATE:",
+    {
+        email: rawDbUserAfterDirectUpdate
+            ? rawDbUserAfterDirectUpdate.email
+            : null,
+
+        userId: rawDbUserAfterDirectUpdate
+            ? rawDbUserAfterDirectUpdate._id.toString()
+            : null,
+
+        otpHashExists:
+            rawDbUserAfterDirectUpdate
+                ? !!rawDbUserAfterDirectUpdate.otpHash
+                : false,
+
+        otpHashLength:
+            rawDbUserAfterDirectUpdate &&
+            rawDbUserAfterDirectUpdate.otpHash
+                ? rawDbUserAfterDirectUpdate.otpHash.length
+                : 0,
+
+        otpExpires:
+            rawDbUserAfterDirectUpdate
+                ? rawDbUserAfterDirectUpdate.otpExpires
+                : null,
+
+        otpPurpose:
+            rawDbUserAfterDirectUpdate
+                ? rawDbUserAfterDirectUpdate.otpPurpose
+                : null,
+
+        otpAttempts:
+            rawDbUserAfterDirectUpdate
+                ? rawDbUserAfterDirectUpdate.otpAttempts
+                : null,
+    }
+);
 
                 // ------------------------------------------------
                 // RAW MONGODB CHECK
