@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from "react";
 import { Link, useHistory, useLocation } from "react-router-dom";
 
@@ -7,7 +8,6 @@ const VerifyOTP = ({ showAlert }) => {
 
   const queryParams = new URLSearchParams(location.search);
 
-  // Backend expects EMAIL
   const email = queryParams.get("email");
   const purpose = queryParams.get("purpose") || "signup";
 
@@ -16,33 +16,17 @@ const VerifyOTP = ({ showAlert }) => {
   const [resending, setResending] = useState(false);
   const [countdown, setCountdown] = useState(60);
 
-  /*
-   * =========================
-   * CHECK EMAIL
-   * =========================
-   */
-
+  // CHECK EMAIL
   useEffect(() => {
     if (!email) {
-      showAlert(
-        "Invalid verification request.",
-        "danger"
-      );
-
+      showAlert("Invalid verification request.", "danger");
       history.replace("/signup");
     }
   }, [email, history, showAlert]);
 
-  /*
-   * =========================
-   * COUNTDOWN TIMER
-   * =========================
-   */
-
+  // COUNTDOWN TIMER
   useEffect(() => {
-    if (countdown <= 0) {
-      return;
-    }
+    if (countdown <= 0) return;
 
     const timer = setInterval(() => {
       setCountdown((previous) => previous - 1);
@@ -51,12 +35,7 @@ const VerifyOTP = ({ showAlert }) => {
     return () => clearInterval(timer);
   }, [countdown]);
 
-  /*
-   * =========================
-   * OTP INPUT
-   * =========================
-   */
-
+  // OTP INPUT
   const handleOtpChange = (event) => {
     const value = event.target.value
       .replace(/\D/g, "")
@@ -65,31 +44,20 @@ const VerifyOTP = ({ showAlert }) => {
     setOtp(value);
   };
 
-  /*
-   * =========================
-   * VERIFY OTP
-   * =========================
-   */
-
+  // VERIFY OTP
   const handleVerify = async (event) => {
     event.preventDefault();
 
-    // Prevent duplicate requests
-    if (loading) {
-      return;
-    }
+    if (loading) return;
 
     if (otp.length !== 6) {
-      showAlert(
-        "Please enter the complete 6-digit OTP.",
-        "danger"
-      );
+      showAlert("Please enter the complete 6-digit OTP.", "danger");
       return;
     }
 
     if (!email) {
       showAlert(
-        "Email is missing. Please start the verification again.",
+        "Email is missing. Please start verification again.",
         "danger"
       );
       return;
@@ -102,11 +70,9 @@ const VerifyOTP = ({ showAlert }) => {
         "https://inotebook-dw4s.onrender.com/api/auth/verifyOtp",
         {
           method: "POST",
-
           headers: {
             "Content-Type": "application/json",
           },
-
           body: JSON.stringify({
             email: email.trim().toLowerCase(),
             otp: otp.trim(),
@@ -119,40 +85,40 @@ const VerifyOTP = ({ showAlert }) => {
 
       console.log("VERIFY OTP RESPONSE:", json);
 
-      /*
-       * =========================
-       * SUCCESS
-       * =========================
-       */
-
+      // SUCCESS
       if (response.ok && json.success) {
-        /*
-         * SIGNUP
-         */
 
+        // SIGNUP: AUTOMATIC LOGIN
         if (purpose === "signup") {
-          if (json.authToken) {
-            localStorage.setItem(
-              "token",
-              json.authToken
+
+          // Backend must return a JWT token
+          if (!json.token) {
+            showAlert(
+              "Email verified, but automatic login failed. Please sign in.",
+              "warning"
             );
+
+            history.replace("/login");
+            return;
           }
 
+          // Save authentication token
+          localStorage.setItem("token", json.token);
+
           showAlert(
-            "Email verified successfully! You can now login.",
+            "Email verified successfully! Welcome to iNotebook.",
             "success"
           );
 
-          history.replace("/login");
+          // Open dashboard directly
+          history.replace("/");
 
           return;
         }
 
-        /*
-         * FORGOT PASSWORD
-         */
-
+        // FORGOT PASSWORD
         if (purpose === "forgot-password") {
+
           if (json.resetToken) {
             sessionStorage.setItem(
               "passwordResetToken",
@@ -166,54 +132,38 @@ const VerifyOTP = ({ showAlert }) => {
           );
 
           history.replace("/reset-password");
-
           return;
         }
       }
 
-      /*
-       * =========================
-       * BACKEND ERROR
-       * =========================
-       */
-
+      // BACKEND ERROR
       showAlert(
         json.error ||
           json.message ||
+          json.errors?.[0]?.msg ||
           "Invalid OTP. Please try again.",
         "danger"
       );
+
     } catch (error) {
-      console.error(
-        "VERIFY OTP ERROR:",
-        error
-      );
+      console.error("VERIFY OTP ERROR:", error);
 
       showAlert(
         "Unable to connect to server. Please try again.",
         "danger"
       );
+
     } finally {
       setLoading(false);
     }
   };
 
-  /*
-   * =========================
-   * RESEND OTP
-   * =========================
-   */
-
+  // RESEND OTP
   const resendOtp = async () => {
-    if (countdown > 0 || resending) {
-      return;
-    }
+    if (countdown > 0 || resending) return;
 
     if (!email) {
-      showAlert(
-        "Email is missing. Please start again.",
-        "danger"
-      );
+      showAlert("Email is missing. Please start again.", "danger");
       return;
     }
 
@@ -224,11 +174,9 @@ const VerifyOTP = ({ showAlert }) => {
         "https://inotebook-dw4s.onrender.com/api/auth/resendOtp",
         {
           method: "POST",
-
           headers: {
             "Content-Type": "application/json",
           },
-
           body: JSON.stringify({
             email: email.trim().toLowerCase(),
             purpose,
@@ -238,10 +186,7 @@ const VerifyOTP = ({ showAlert }) => {
 
       const json = await response.json();
 
-      console.log(
-        "RESEND OTP RESPONSE:",
-        json
-      );
+      console.log("RESEND OTP RESPONSE:", json);
 
       if (response.ok && json.success) {
         setCountdown(60);
@@ -255,31 +200,26 @@ const VerifyOTP = ({ showAlert }) => {
         showAlert(
           json.error ||
             json.message ||
+            json.errors?.[0]?.msg ||
             "Unable to resend OTP.",
           "danger"
         );
       }
+
     } catch (error) {
-      console.error(
-        "RESEND OTP ERROR:",
-        error
-      );
+      console.error("RESEND OTP ERROR:", error);
 
       showAlert(
         "Unable to connect to server.",
         "danger"
       );
+
     } finally {
       setResending(false);
     }
   };
 
-  /*
-   * =========================
-   * UI
-   * =========================
-   */
-
+  // UI
   return (
     <div className="auth-page">
 
@@ -293,7 +233,6 @@ const VerifyOTP = ({ showAlert }) => {
         <div className="auth-card">
 
           {/* HEADER */}
-
           <div className="auth-header">
 
             <div className="auth-icon">
@@ -314,7 +253,6 @@ const VerifyOTP = ({ showAlert }) => {
           </div>
 
           {/* OTP FORM */}
-
           <form
             onSubmit={handleVerify}
             className="auth-form"
@@ -352,14 +290,10 @@ const VerifyOTP = ({ showAlert }) => {
             </div>
 
             {/* VERIFY BUTTON */}
-
             <button
               type="submit"
               className="auth-submit-btn"
-              disabled={
-                loading ||
-                otp.length !== 6
-              }
+              disabled={loading || otp.length !== 6}
             >
 
               {loading ? (
@@ -379,15 +313,12 @@ const VerifyOTP = ({ showAlert }) => {
           </form>
 
           {/* RESEND OTP */}
-
           <div className="otp-resend-section">
 
             {countdown > 0 ? (
               <p>
-                Resend OTP in{" "}
-                <strong>
-                  {countdown}s
-                </strong>
+                Resend OTP{" "}
+                <strong>in {countdown}s</strong>
               </p>
             ) : (
               <button
@@ -396,32 +327,25 @@ const VerifyOTP = ({ showAlert }) => {
                 onClick={resendOtp}
                 disabled={resending}
               >
-                {resending
-                  ? "Sending..."
-                  : "Resend OTP"}
+                {resending ? "Sending..." : "Resend OTP"}
               </button>
             )}
 
           </div>
 
           {/* DIVIDER */}
-
           <div className="auth-divider">
-            <span>
-              secure verification
-            </span>
+            <span>secure verification</span>
           </div>
 
           {/* FOOTER */}
-
           <div className="auth-footer">
 
             <p>
               Entered the wrong account?
 
               <Link to="/signup">
-                {" "}
-                Create another account
+                {" "}Create another account
               </Link>
             </p>
 
@@ -430,7 +354,6 @@ const VerifyOTP = ({ showAlert }) => {
         </div>
 
         {/* TRUST BADGES */}
-
         <div className="auth-trust">
 
           <span>
